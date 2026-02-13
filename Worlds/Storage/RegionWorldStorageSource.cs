@@ -8,16 +8,14 @@ namespace betareborn.Worlds.Storage
     public class RegionWorldStorageSource : WorldStorageSource
     {
         protected readonly java.io.File dir;
-        private readonly bool async;
 
-        public RegionWorldStorageSource(java.io.File file, bool async = false)
+        public RegionWorldStorageSource(java.io.File file)
         {
             if (!file.exists())
             {
                 file.mkdirs();
             }
             dir = file;
-            this.async = async;
         }
 
         public virtual string getName()
@@ -63,7 +61,7 @@ namespace betareborn.Worlds.Storage
 
         public virtual WorldStorage get(string var1, bool var2)
         {
-            return new RegionWorldStorage(dir, var1, var2, async);
+            return new RegionWorldStorage(dir, var1, var2);
         }
 
         private static long getFolderSizeMB(java.io.File folder)
@@ -105,8 +103,8 @@ namespace betareborn.Worlds.Storage
                 {
                     try
                     {
-                        var4 = NbtIo.read(new FileInputStream(var3));
-                        var5 = var4.getCompoundTag("Data");
+                        var4 = NbtIo.Read(new FileInputStream(var3));
+                        var5 = var4.GetCompoundTag("Data");
                         long sizeOnDisk = getFolderSizeMB(var2);
                         var wInfo = new WorldProperties(var5);
                         wInfo.setSizeOnDisk(sizeOnDisk);
@@ -123,8 +121,8 @@ namespace betareborn.Worlds.Storage
                 {
                     try
                     {
-                        var4 = NbtIo.read(new FileInputStream(var3));
-                        var5 = var4.getCompoundTag("Data");
+                        var4 = NbtIo.Read(new FileInputStream(var3));
+                        var5 = var4.GetCompoundTag("Data");
                         long sizeOnDisk = getFolderSizeMB(var2);
                         var wInfo = new WorldProperties(var5);
                         wInfo.setSizeOnDisk(sizeOnDisk);
@@ -150,10 +148,10 @@ namespace betareborn.Worlds.Storage
                 {
                     try
                     {
-                        betareborn.NBT.NBTTagCompound var5 = NbtIo.read(new FileInputStream(var4));
-                        betareborn.NBT.NBTTagCompound var6 = var5.getCompoundTag("Data");
-                        var6.setString("LevelName", var2);
-                        NbtIo.writeGzippedCompoundToOutputStream(var5, new FileOutputStream(var4));
+                        betareborn.NBT.NBTTagCompound var5 = NbtIo.Read(new FileInputStream(var4));
+                        betareborn.NBT.NBTTagCompound var6 = var5.GetCompoundTag("Data");
+                        var6.SetString("LevelName", var2);
+                        NbtIo.WriteCompressed(var5, new FileOutputStream(var4));
                     }
                     catch (java.lang.Exception var7)
                     {

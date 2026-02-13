@@ -23,9 +23,6 @@ using betareborn.Stats;
 using betareborn.Util.Hit;
 using betareborn.Util.Maths;
 using betareborn.Worlds;
-using betareborn.Worlds.Chunks;
-using betareborn.Worlds.Chunks.Storage;
-using betareborn.Worlds.Dimensions;
 using betareborn.Worlds.Storage;
 using ImGuiNET;
 using java.lang;
@@ -45,7 +42,7 @@ namespace betareborn
         private bool hasCrashed = false;
         public int displayWidth;
         public int displayHeight;
-        private Timer timer = new Timer(20.0F);
+        private readonly Client.Timer timer = new(20.0F);
         public World world;
         public WorldRenderer terrainRenderer;
         public ClientPlayerEntity player;
@@ -59,20 +56,17 @@ namespace betareborn
         public TextRenderer fontRenderer;
         public GuiScreen currentScreen = null;
         public LoadingScreenRenderer loadingScreen;
-
         public GameRenderer gameRenderer;
-
-        //private ThreadDownloadResources downloadResourcesThread;
         private int ticksRan = 0;
         private int leftClickCounter = 0;
-        private int tempDisplayWidth;
-        private int tempDisplayHeight;
+        private readonly int tempDisplayWidth;
+        private readonly int tempDisplayHeight;
         public GuiAchievement guiAchievement;
         public GuiIngame ingameGUI;
         public bool skipRenderWorld = false;
         public HitResult objectMouseOver = null;
         public GameOptions options;
-        public SoundManager sndManager = new SoundManager();
+        public SoundManager sndManager = new();
         public MouseHelper mouseHelper;
         public TexturePacks texturePackList;
         private java.io.File mcDataDir;
@@ -84,8 +78,8 @@ namespace betareborn
         public StatFileWriter statFileWriter;
         private string serverName;
         private int serverPort;
-        private WaterSprite textureWaterFX = new WaterSprite();
-        private LavaSprite textureLavaFX = new LavaSprite();
+        private readonly WaterSprite textureWaterFX = new();
+        private readonly LavaSprite textureLavaFX = new();
         private static java.io.File minecraftDir = null;
         public volatile bool running = true;
         public string debug = "";
@@ -179,7 +173,7 @@ namespace betareborn
             Display.setTitle("Minecraft Beta 1.7.3");
 
             mcDataDir = getMinecraftDir();
-            saveLoader = new RegionWorldStorageSource(new java.io.File(mcDataDir, "saves"), true);
+            saveLoader = new RegionWorldStorageSource(new java.io.File(mcDataDir, "saves"));
             options = new GameOptions(this, mcDataDir);
             Profiler.Enabled = options.debugMode;
 
@@ -187,7 +181,10 @@ namespace betareborn
             {
                 int[] msaaValues = [0, 2, 4, 8];
                 Display.MSAA_Samples = msaaValues[options.msaaLevel];
+
                 Display.create();
+                Display.getGlfw().SetWindowSizeLimits(Display.getWindowHandle(), 850, 480, 1280, 720);
+
                 GLManager.Init(Display.getGL()!);
             }
             catch (System.Exception var6)
@@ -282,7 +279,7 @@ namespace betareborn
 
         private void loadScreen()
         {
-            ScaledResolution var1 = new ScaledResolution(options, displayWidth, displayHeight);
+            ScaledResolution var1 = new(options, displayWidth, displayHeight);
             GLManager.GL.Clear(ClearBufferMask.DepthBufferBit | ClearBufferMask.ColorBufferBit);
             GLManager.GL.MatrixMode(GLEnum.Projection);
             GLManager.GL.LoadIdentity();
@@ -408,10 +405,7 @@ namespace betareborn
         {
             if (!(currentScreen is GuiUnused))
             {
-                if (currentScreen != null)
-                {
-                    currentScreen.onGuiClosed();
-                }
+                currentScreen?.onGuiClosed();
 
                 if (newScreen is GuiMainMenu)
                 {
@@ -437,7 +431,7 @@ namespace betareborn
                 if (newScreen != null)
                 {
                     setIngameNotInFocus();
-                    ScaledResolution scaledResolution = new ScaledResolution(options, displayWidth, displayHeight);
+                    ScaledResolution scaledResolution = new(options, displayWidth, displayHeight);
                     int scaledWidth = scaledResolution.getScaledWidth();
                     int scaledHeight = scaledResolution.getScaledHeight();
                     ((GuiScreen)newScreen).setWorldAndResolution(this, scaledWidth, scaledHeight);
@@ -604,10 +598,7 @@ namespace betareborn
 
                         if (!skipRenderWorld)
                         {
-                            if (playerController != null)
-                            {
-                                playerController.setPartialTime(timer.renderPartialTicks);
-                            }
+                            playerController?.setPartialTime(timer.renderPartialTicks);
 
                             if (options.debugMode) Profiler.PushGroup("render");
                             gameRenderer.onFrameUpdate(timer.renderPartialTicks);
@@ -619,14 +610,6 @@ namespace betareborn
                             imGuiController.Update(timer.deltaTime);
                             ProfilerRenderer.Draw();
                             ProfilerRenderer.DrawGraph();
-
-                            ImGui.Begin("Region Info");
-                            long rls = Region.RegionCache.getRegionsLoadedSync();
-                            long rla = Region.RegionCache.getRegionsLoadedAsync();
-                            ImGui.Text($"Regions loaded sync: {rls}");
-                            ImGui.Text($"Regions loaded async: {rla}");
-                            ImGui.Text($"Regions loaded total: {rls + rla}");
-                            ImGui.End();
 
                             ImGui.Begin("IO");
                             ImGui.Text($"Async IO ops: {AsyncIO.activeTaskCount()}");
@@ -899,10 +882,7 @@ namespace betareborn
         {
             if (inGameHasFocus)
             {
-                if (player != null)
-                {
-                    player.resetPlayerKeyState();
-                }
+                player?.resetPlayerKeyState();
 
                 inGameHasFocus = false;
                 mouseHelper.ungrabMouseCursor();
@@ -1088,7 +1068,7 @@ namespace betareborn
 
             if (currentScreen != null)
             {
-                ScaledResolution scaledResolution = new ScaledResolution(options, newWidth, newHeight);
+                ScaledResolution scaledResolution = new(options, newWidth, newHeight);
                 int scaledWidth = scaledResolution.getScaledWidth();
                 int scaledHeight = scaledResolution.getScaledHeight();
                 currentScreen.setWorldAndResolution(this, scaledWidth, scaledHeight);
@@ -1183,7 +1163,7 @@ namespace betareborn
                 currentScreen.handleInput();
                 if (currentScreen != null)
                 {
-                    currentScreen.particlesGui.func_25088_a();
+                    currentScreen.particlesGui.updateParticles();
                     currentScreen.updateScreen();
                 }
             }
@@ -1323,9 +1303,9 @@ namespace betareborn
                             }
                         }
                     }
-                    else if (currentScreen != null)
+                    else
                     {
-                        currentScreen.handleMouseInput();
+                        currentScreen?.handleMouseInput();
                     }
                 }
             }
@@ -1461,66 +1441,6 @@ namespace betareborn
             displayGuiScreen(new GuiLevelLoading(worldName, mainMenuText, seed));
         }
 
-
-        public void usePortal()
-        {
-            java.lang.System.@out.println("Toggling dimension!!");
-            if (player.dimensionId == -1)
-            {
-                player.dimensionId = 0;
-            }
-            else
-            {
-                player.dimensionId = -1;
-            }
-
-            world.remove(player);
-            player.dead = false;
-            double playerX = player.x;
-            double playerZ = player.z;
-            double dimensionScaleFactor = 8.0D;
-            World newWorld;
-            if (player.dimensionId == -1)
-            {
-                playerX /= dimensionScaleFactor;
-                playerZ /= dimensionScaleFactor;
-                player.setPositionAndAnglesKeepPrevAngles(playerX, player.y, playerZ, player.yaw,
-                    player.pitch);
-                if (player.isAlive())
-                {
-                    world.updateEntity(player, false);
-                }
-
-                newWorld = null;
-                newWorld = new World(world, Dimension.fromId(-1));
-                changeWorld(newWorld, "Entering the Nether", player);
-            }
-            else
-            {
-                playerX *= dimensionScaleFactor;
-                playerZ *= dimensionScaleFactor;
-                player.setPositionAndAnglesKeepPrevAngles(playerX, player.y, playerZ, player.yaw,
-                    player.pitch);
-                if (player.isAlive())
-                {
-                    world.updateEntity(player, false);
-                }
-
-                newWorld = null;
-                newWorld = new World(world, Dimension.fromId(0));
-                changeWorld(newWorld, "Leaving the Nether", player);
-            }
-
-            player.world = world;
-            if (player.isAlive())
-            {
-                player.setPositionAndAnglesKeepPrevAngles(playerX, player.y, playerZ, player.yaw,
-                    player.pitch);
-                world.updateEntity(player, false);
-                (new PortalForcer()).moveToPortal(world, player);
-            }
-        }
-
         public void changeWorld1(World newWorld)
         {
             changeWorld2(newWorld, "");
@@ -1531,35 +1451,6 @@ namespace betareborn
             changeWorld(newWorld, loadingMessage, (EntityPlayer)null);
         }
 
-        private enum BlockedReason
-        {
-            Chunks,
-            Level
-        }
-
-        private static bool isBlocked(out BlockedReason reason, out int toSave)
-        {
-            bool blockedByChunks = Region.RegionCache.isBlocked(out toSave);
-
-            if (blockedByChunks)
-            {
-                reason = BlockedReason.Chunks;
-                return true;
-            }
-
-            bool blockedByLevel = AsyncIO.isBlocked();
-
-            if (blockedByLevel)
-            {
-                reason = BlockedReason.Level;
-                return true;
-            }
-
-            toSave = 0;
-            reason = BlockedReason.Chunks;
-            return false;
-        }
-
         public void changeWorld(World newWorld, string loadingText, EntityPlayer targetEntity)
         {
             statFileWriter.func_27175_b();
@@ -1568,36 +1459,6 @@ namespace betareborn
             loadingScreen.printText(loadingText);
             loadingScreen.progressStage("");
             sndManager.playStreaming((string)null, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
-
-            if (world != null)
-            {
-                world.savingProgress(loadingScreen);
-
-                while (true)
-                {
-                    bool blocked = isBlocked(out BlockedReason reason, out int toSave);
-
-                    if (!blocked)
-                    {
-                        break;
-                    }
-
-                    loadingScreen.printText(loadingText);
-
-                    string loadingString = reason == BlockedReason.Chunks
-                        ? $"Saving chunks ({toSave} left)"
-                        : "Saving level data";
-
-                    loadingScreen.progressStage(loadingString);
-
-                    java.lang.Thread.sleep(33);
-                }
-
-                Console.WriteLine("Saved chunks");
-                saveLoader.flush();
-
-                Region.RegionCache.deleteSaveHandler();
-            }
 
             world = newWorld;
             if (newWorld != null)
@@ -1613,15 +1474,7 @@ namespace betareborn
                 else if (player != null)
                 {
                     player.teleportToTop();
-                    if (newWorld != null)
-                    {
-                        newWorld.spawnEntity(player);
-                    }
-                }
-
-                if (!newWorld.isRemote)
-                {
-                    func_6255_d(loadingText);
+                    newWorld?.spawnEntity(player);
                 }
 
                 if (player == null)
@@ -1632,15 +1485,9 @@ namespace betareborn
                 }
 
                 player.movementInput = new MovementInputFromOptions(options);
-                if (terrainRenderer != null)
-                {
-                    terrainRenderer.changeWorld(newWorld);
-                }
+                terrainRenderer?.changeWorld(newWorld);
 
-                if (particleManager != null)
-                {
-                    particleManager.clearEffects(newWorld);
-                }
+                particleManager?.clearEffects(newWorld);
 
                 playerController.func_6473_b(player);
                 if (targetEntity != null)
@@ -1661,13 +1508,10 @@ namespace betareborn
                 player = null;
             }
 
-            java.lang.System.gc();
             systemTime = 0L;
         }
 
-
-
-        private void func_6255_d(string loadingText)
+        private void showText(string loadingText)
         {
             loadingScreen.printText(loadingText);
             loadingScreen.progressStage("Building terrain");
@@ -1675,7 +1519,6 @@ namespace betareborn
             int loadedChunkCount = 0;
             int totalChunksToLoad = loadingRadius * 2 / 16 + 1;
             totalChunksToLoad *= totalChunksToLoad;
-            ChunkSource chunkSource = world.getChunkSource();
             Vec3i centerPos = world.getSpawnPos();
             if (player != null)
             {
@@ -1750,11 +1593,6 @@ namespace betareborn
 
         public void respawn(bool ignoreSpawnPosition, int newDimensionId)
         {
-            if (!world.isRemote && !world.dimension.hasWorldSpawn())
-            {
-                usePortal();
-            }
-
             Vec3i playerSpawnPos = null;
             Vec3i respawnPos = null;
             bool useBedSpawn = true;
@@ -1804,7 +1642,7 @@ namespace betareborn
             player.id = previousPlayerId;
             player.spawn();
             playerController.func_6473_b(player);
-            func_6255_d("Respawning");
+            showText("Respawning");
             if (currentScreen is GuiGameOver)
             {
                 displayGuiScreen((GuiScreen)null);
@@ -1818,7 +1656,7 @@ namespace betareborn
 
         public static void startMainThread(string playerName, string sessionToken, string serverAddress)
         {
-            Minecraft mc = new(1920, 1080, false);
+            Minecraft mc = new(1280, 720, false);
             java.lang.Thread mainThread = new(mc, "Minecraft main thread");
             mainThread.setPriority(10);
             mc.minecraftUri = "www.minecraft.net";
