@@ -16,14 +16,14 @@ public sealed class WeightedRandomSelector<T>
     }
 
     // Note: You might want to ensure that it's not empty before calling this method, otherwise it will throw an exception.
-    public T GetNext(JavaRandom random)
+    public T GetNext(JavaRandom random) => GetNext(random.NextInt(_cumulativeWeight.Last()));
+
+    public T GetNext(int r)
     {
         if (Empty) throw new InvalidOperationException("No items to select from.");
 
-        int r = random.NextInt(_cumulativeWeight.Last());
         int index = _cumulativeWeight.BinarySearch(r);
-        if (index < 0) index = ~index; // If not found, BinarySearch returns the bitwise complement of the index of the next element that is larger than the search value.
-        if (index != 0) index--; // We want the last index where cumulative weight is less than
+        if (index < 0) index = ~index - 1; // If not found, BinarySearch returns the bitwise complement of the index of the next element that is larger than the search value.
 
         return _items[index];
     }
