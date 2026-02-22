@@ -4,14 +4,12 @@ using BetaSharp.Items;
 using BetaSharp.NBT;
 using BetaSharp.Util.Maths;
 using BetaSharp.Worlds;
-using java.lang;
 
 namespace BetaSharp.Entities;
 
 //TODO: BREAKING MINECART CRASHES THE GAME!!
 public class EntityMinecart : Entity, IInventory
 {
-    public static readonly Class Class = ikvm.runtime.Util.getClassFromTypeHandle(typeof(EntityMinecart).TypeHandle);
     private ItemStack[] cargoItems;
     public int minecartCurrentDamage;
     public int minecartTimeSinceHit;

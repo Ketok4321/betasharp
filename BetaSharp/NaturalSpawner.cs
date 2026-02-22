@@ -51,7 +51,7 @@ public static class NaturalSpawner
         Vec3i worldSpawn = world.getSpawnPos();
         foreach (var creatureKind in CreatureKind.Values)
         {
-            if (((!creatureKind.Peaceful && spawnHostile) || (creatureKind.Peaceful && spawnPeaceful)) && world.countEntities(creatureKind.EntityType) <= creatureKind.MobCap * ChunksForSpawning.Count / 256)
+            if (((!creatureKind.Peaceful && spawnHostile) || (creatureKind.Peaceful && spawnPeaceful)) && world.CountEntitiesOfType(creatureKind.EntityType) <= creatureKind.MobCap * ChunksForSpawning.Count / 256)
             {
                 foreach (var chunk in ChunksForSpawning)
                 {

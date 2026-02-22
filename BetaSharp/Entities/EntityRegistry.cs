@@ -1,6 +1,5 @@
 using BetaSharp.NBT;
 using BetaSharp.Worlds;
-using Exception = System.Exception;
 
 namespace BetaSharp.Entities;
 
@@ -32,7 +31,7 @@ public static class EntityRegistry
 	    TryCreate(id, world, out Entity? entity);
 	    return entity;
     }
-    
+
     private static bool TryCreate(string id, World world, out Entity? entity)
     {
 	    if (idToFactory.TryGetValue(id, out var factory))
