@@ -42,7 +42,7 @@ public class MapItemRenderer
             }
             else
             {
-                uint colorValue = MapColor.mapColorArray[color / 4].colorValue;
+                uint colorValue = MapColor.ById(color / 4).ColorValue;
                 int lowest2Bits = color & 3;
                 byte brightness = lowest2Bits switch
                 {

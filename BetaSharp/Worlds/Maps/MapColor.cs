@@ -1,29 +1,40 @@
 namespace BetaSharp.Worlds.Maps;
 
-public class MapColor
+public record struct MapColor // TODO: Move Color from Client project to Core and use it here instead of uint
 {
-    public static readonly MapColor[] mapColorArray = new MapColor[16];
-    public static readonly MapColor airColor =      new(0,  0x000000);
-    public static readonly MapColor grassColor =    new(1,  0x7FB238);
-    public static readonly MapColor sandColor =     new(2,  0xF7E9A3);
-    public static readonly MapColor clothColor =    new(3,  0xA7A7A7);
-    public static readonly MapColor tntColor =      new(4,  0xFF0000);
-    public static readonly MapColor iceColor =      new(5,  0xA0A0FF);
-    public static readonly MapColor ironColor =     new(6,  0xA7A7A7);
-    public static readonly MapColor foliageColor =  new(7,  0x007C00);
-    public static readonly MapColor snowColor =     new(8,  0xFFFFFF);
-    public static readonly MapColor clayColor =     new(9,  0xA4A8B8);
-    public static readonly MapColor dirtColor =     new(10, 0xB76A2F);
-    public static readonly MapColor stoneColor =    new(11, 0x707070);
-    public static readonly MapColor waterColor =    new(12, 0x4040FF);
-    public static readonly MapColor woodColor =     new(13, 0x685332);
-    public readonly uint colorValue;
-    public readonly int colorIndex;
+    private static readonly List<MapColor> s_colors = [];
 
-    private MapColor(int var1, uint var2)
+    public static MapColor ById(int id) => s_colors[id];
+
+    public static MapColor Create(uint colorValue)
     {
-        colorIndex = var1;
-        colorValue = var2;
-        mapColorArray[var1] = this;
+        int id = s_colors.Count;
+        var result = new MapColor(id, colorValue);
+        s_colors.Add(result);
+        return result;
+    }
+
+    public static readonly MapColor Air =      Create(0x000000);
+    public static readonly MapColor Grass =    Create(0x7FB238);
+    public static readonly MapColor Sand =     Create(0xF7E9A3);
+    public static readonly MapColor Cloth =    Create(0xA7A7A7);
+    public static readonly MapColor TNT =      Create(0xFF0000);
+    public static readonly MapColor Ice =      Create(0xA0A0FF);
+    public static readonly MapColor Iron =     Create(0xA7A7A7);
+    public static readonly MapColor Foliage =  Create(0x007C00);
+    public static readonly MapColor Snow =     Create(0xFFFFFF);
+    public static readonly MapColor Clay =     Create(0xA4A8B8);
+    public static readonly MapColor Dirt =     Create(0xB76A2F);
+    public static readonly MapColor Stone =    Create(0x707070);
+    public static readonly MapColor Water =    Create(0x4040FF);
+    public static readonly MapColor Wood =     Create(0x685332);
+
+    public int Id { get; }
+    public uint ColorValue { get; }
+
+    private MapColor(int id, uint colorValue)
+    {
+        Id = id;
+        ColorValue = colorValue;
     }
 }

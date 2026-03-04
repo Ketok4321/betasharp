@@ -145,7 +145,7 @@ public class ItemMap : NetworkSyncedItem
                             if (sampleZ > 0)
                             {
                                 MapColor mapColor = Block.Blocks[sampleZ].material.MapColor;
-                                if (mapColor == MapColor.waterColor)
+                                if (mapColor == MapColor.Water)
                                 {
                                     shadeFactor = (double)fluidDepth * 0.1D + (double)(pixelX + pixelZ & 1) * 0.2D;
                                     brightness = 1;
@@ -160,7 +160,7 @@ public class ItemMap : NetworkSyncedItem
                                     }
                                 }
 
-                                colorIndex = mapColor.colorIndex;
+                                colorIndex = mapColor.Id;
                             }
 
                             lastHeight = avgHeight;
@@ -210,7 +210,7 @@ public class ItemMap : NetworkSyncedItem
             {
                 foundSurface = false;
             }
-            else if (scanY > 0 && blockId > 0 && Block.Blocks[blockId].material.MapColor == MapColor.airColor)
+            else if (scanY > 0 && blockId > 0 && Block.Blocks[blockId].material.MapColor == MapColor.Air)
             {
                 foundSurface = false;
             }
