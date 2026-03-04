@@ -54,17 +54,17 @@ public class GuiVideoSettings : GuiScreen
 
             if (btn.Id == 200)
             {
-                mc.options.SaveOptions();
-                mc.displayGuiScreen(_parentScreen);
+                Game.options.SaveOptions();
+                Game.displayGuiScreen(_parentScreen);
             }
 
             if (btn is GuiSmallButton { Option: CycleOption } guiScaleBtn
                 && guiScaleBtn.Option == _gameOptions.GuiScaleOption)
             {
-                ScaledResolution scaled = new(mc.options, mc.displayWidth, mc.displayHeight);
+                ScaledResolution scaled = new(Game.options, Game.displayWidth, Game.displayHeight);
                 int scaledWidth = scaled.ScaledWidth;
                 int scaledHeight = scaled.ScaledHeight;
-                SetWorldAndResolution(mc, scaledWidth, scaledHeight);
+                SetWorldAndResolution(Game, scaledWidth, scaledHeight);
             }
         }
     }
@@ -72,7 +72,7 @@ public class GuiVideoSettings : GuiScreen
     public override void Render(int mouseX, int mouseY, float partialTicks)
     {
         DrawDefaultBackground();
-        DrawCenteredString(FontRenderer, _screenTitle, Width / 2, 20, 0xFFFFFF);
+        DrawCenteredString(FontRenderer, _screenTitle, Width / 2, 20, Color.White);
         base.Render(mouseX, mouseY, partialTicks);
     }
 }

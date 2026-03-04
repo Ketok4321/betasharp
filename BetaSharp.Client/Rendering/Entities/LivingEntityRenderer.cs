@@ -1,10 +1,10 @@
+using BetaSharp.Client.Guis;
 using BetaSharp.Client.Rendering.Core;
+using BetaSharp.Client.Rendering.Core.OpenGL;
 using BetaSharp.Client.Rendering.Entities.Models;
 using BetaSharp.Entities;
 using BetaSharp.Util.Maths;
-using java.lang;
 using Microsoft.Extensions.Logging;
-using Silk.NET.OpenGL.Legacy;
 using Exception = System.Exception;
 
 namespace BetaSharp.Client.Rendering.Entities;
@@ -202,9 +202,9 @@ public class LivingEntityRenderer : EntityRenderer
 
     protected virtual void passSpecialRender(EntityLiving var1, double var2, double var4, double var6)
     {
-        if (Minecraft.isDebugInfoEnabled())
+        if (BetaSharp.isDebugInfoEnabled())
         {
-            renderLivingLabel(var1, Integer.toString(var1.id), var2, var4, var6, 64);
+            renderLivingLabel(var1, var1.id.ToString(), var2, var4, var6, 64);
         }
 
     }
@@ -245,10 +245,10 @@ public class LivingEntityRenderer : EntityRenderer
             var14.addVertex(var16 + 1, -1 + var15, 0.0D);
             var14.draw();
             GLManager.GL.Enable(GLEnum.Texture2D);
-            var11.DrawString(var2, -var11.GetStringWidth(var2) / 2, var15, 0x20FFFFFF);
+            var11.DrawString(var2, -var11.GetStringWidth(var2) / 2, var15, Color.WhiteAlpha20);
             GLManager.GL.Enable(GLEnum.DepthTest);
             GLManager.GL.DepthMask(true);
-            var11.DrawString(var2, -var11.GetStringWidth(var2) / 2, var15, 0xFFFFFFFF);
+            var11.DrawString(var2, -var11.GetStringWidth(var2) / 2, var15, Color.WhiteAlpha20);
             GLManager.GL.Enable(GLEnum.Lighting);
             GLManager.GL.Disable(GLEnum.Blend);
             GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);

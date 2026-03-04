@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace BetaSharp.Server;
 
-public class DedicatedPlayerManager : PlayerManager
+internal class DedicatedPlayerManager : PlayerManager
 {
     private readonly ILogger<DedicatedPlayerManager> _logger = Log.Instance.For<DedicatedPlayerManager>();
     private readonly java.io.File BANNED_PLAYERS_FILE;
@@ -11,7 +11,7 @@ public class DedicatedPlayerManager : PlayerManager
     private readonly java.io.File OPERATORS_FILE;
     private readonly java.io.File WHITELIST_FILE;
 
-    public DedicatedPlayerManager(MinecraftServer server) : base(server)
+    public DedicatedPlayerManager(BetaSharpServer server) : base(server)
     {
         BANNED_PLAYERS_FILE = server.getFile("banned-players.txt");
         BANNED_IPS_FILE = server.getFile("banned-ips.txt");

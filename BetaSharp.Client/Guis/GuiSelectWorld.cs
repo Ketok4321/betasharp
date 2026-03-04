@@ -1,8 +1,5 @@
-﻿using BetaSharp.Client.Input;
-using BetaSharp.Util.Maths;
+using BetaSharp.Client.Input;
 using BetaSharp.Worlds.Storage;
-using java.text;
-using java.util;
 
 namespace BetaSharp.Client.Guis;
 
@@ -14,7 +11,8 @@ public class GuiSelectWorld : GuiScreen
     private const int BUTTON_CREATE = 3;
     private const int BUTTON_RENAME = 6;
 
-    private readonly DateFormat dateFormatter = new SimpleDateFormat();
+    private readonly string dateFormatter = "MMM d, yyyy HH:mm";
+    
     protected GuiScreen parentScreen;
     protected string screenTitle = "Select world";
     private bool selected;
@@ -47,7 +45,7 @@ public class GuiSelectWorld : GuiScreen
 
     private void loadSaves()
     {
-        IWorldStorageSource worldStorage = mc.getSaveLoader();
+        IWorldStorageSource worldStorage = Game.getSaveLoader();
         saveList = worldStorage.GetAll();
         saveList.Sort();
         selectedWorld = -1;
@@ -61,7 +59,7 @@ public class GuiSelectWorld : GuiScreen
     protected string getSaveName(int worldIndex)
     {
         string worldName = saveList[worldIndex].DisplayName;
-        if (worldName == null || string.IsNullOrEmpty(worldName))
+        if (string.IsNullOrEmpty(worldName))
         {
             TranslationStorage translations = TranslationStorage.Instance;
             worldName = translations.TranslateKey("selectWorld.world") + " " + (worldIndex + 1);
@@ -95,7 +93,7 @@ public class GuiSelectWorld : GuiScreen
             string deleteButtonText = translations.TranslateKey("selectWorld.deleteButton");
             string cancelButtonText = translations.TranslateKey("gui.cancel");
             GuiYesNo confirmDialog = new(this, deleteQuestion, deleteWarning, deleteButtonText, cancelButtonText, worldIndex);
-            mc.displayGuiScreen(confirmDialog);
+            Game.displayGuiScreen(confirmDialog);
         }
     }
 
@@ -112,13 +110,13 @@ public class GuiSelectWorld : GuiScreen
                     selectWorld(selectedWorld);
                     break;
                 case BUTTON_CREATE:
-                    mc.displayGuiScreen(new GuiCreateWorld(this));
+                    Game.displayGuiScreen(new GuiCreateWorld(this));
                     break;
                 case BUTTON_RENAME:
-                    mc.displayGuiScreen(new GuiRenameWorld(this, getSaveFileName(selectedWorld)));
+                    Game.displayGuiScreen(new GuiRenameWorld(this, getSaveFileName(selectedWorld)));
                     break;
                 case BUTTON_CANCEL:
-                    mc.displayGuiScreen(parentScreen);
+                    Game.displayGuiScreen(parentScreen);
                     break;
                 default:
                     worldSlotContainer.ActionPerformed(button);
@@ -132,11 +130,10 @@ public class GuiSelectWorld : GuiScreen
         if (!selected)
         {
             selected = true;
-            mc.playerController = new PlayerControllerSP(mc);
-            string worldFileName = getSaveFileName(worldIndex);
-            worldFileName ??= "World" + worldIndex;
-
-            mc.startWorld(worldFileName, getSaveName(worldIndex), 0L);
+            Game.statFileWriter.ReadStat(Stats.Stats.LoadWorldStat, 1);
+            Game.playerController = new PlayerControllerSP(Game);
+            string worldFileName = getSaveFileName(worldIndex) ?? $"World{worldIndex}";
+            Game.startWorld(worldFileName, getSaveName(worldIndex), 0L);
         }
     }
 
@@ -150,14 +147,13 @@ public class GuiSelectWorld : GuiScreen
                 performDelete(worldIndex);
             }
 
-            mc.displayGuiScreen(this);
+            Game.displayGuiScreen(this);
         }
-
     }
 
     private void performDelete(int worldIndex)
     {
-        IWorldStorageSource worldStorage = mc.getSaveLoader();
+        IWorldStorageSource worldStorage = Game.getSaveLoader();
         worldStorage.Flush();
         worldStorage.Delete(getSaveFileName(worldIndex));
         loadSaves();
@@ -166,52 +162,18 @@ public class GuiSelectWorld : GuiScreen
     public override void Render(int mouseX, int mouseY, float partialTicks)
     {
         worldSlotContainer.DrawScreen(mouseX, mouseY, partialTicks);
-        DrawCenteredString(FontRenderer, screenTitle, Width / 2, 20, 0xFFFFFF);
+        DrawCenteredString(FontRenderer, screenTitle, Width / 2, 20, Color.White);
         base.Render(mouseX, mouseY, partialTicks);
     }
+    
+    public static List<WorldSaveInfo> GetSize(GuiSelectWorld screen) => screen.saveList;
+    public static int onElementSelected(GuiSelectWorld screen, int worldIndex) => screen.selectedWorld = worldIndex;
+    public static int getSelectedWorld(GuiSelectWorld screen) => screen.selectedWorld;
+    public static GuiButton getSelectButton(GuiSelectWorld screen) => screen.buttonSelect;
+    public static GuiButton getRenameButton(GuiSelectWorld screen) => screen.buttonRename;
+    public static GuiButton getDeleteButton(GuiSelectWorld screen) => screen.buttonDelete;
+    public static string getWorldNameHeader(GuiSelectWorld screen) => screen.worldNameHeader;
+    public static string getUnsupportedFormatMessage(GuiSelectWorld screen) => screen.unsupportedFormatMessage;
 
-    public static List<WorldSaveInfo> GetSize(GuiSelectWorld screen)
-    {
-        return screen.saveList;
-    }
-
-    public static int onElementSelected(GuiSelectWorld screen, int worldIndex)
-    {
-        return screen.selectedWorld = worldIndex;
-    }
-
-    public static int getSelectedWorld(GuiSelectWorld screen)
-    {
-        return screen.selectedWorld;
-    }
-
-    public static GuiButton getSelectButton(GuiSelectWorld screen)
-    {
-        return screen.buttonSelect;
-    }
-
-    public static GuiButton getRenameButton(GuiSelectWorld screen)
-    {
-        return screen.buttonRename;
-    }
-
-    public static GuiButton getDeleteButton(GuiSelectWorld screen)
-    {
-        return screen.buttonDelete;
-    }
-
-    public static string getWorldNameHeader(GuiSelectWorld screen)
-    {
-        return screen.worldNameHeader;
-    }
-
-    public static DateFormat getDateFormatter(GuiSelectWorld screen)
-    {
-        return screen.dateFormatter;
-    }
-
-    public static string getUnsupportedFormatMessage(GuiSelectWorld screen)
-    {
-        return screen.unsupportedFormatMessage;
-    }
+    public static string getDateFormatter(GuiSelectWorld screen) => screen.dateFormatter;
 }

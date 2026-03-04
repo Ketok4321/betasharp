@@ -2,7 +2,7 @@ using BetaSharp.Entities;
 
 namespace BetaSharp;
 
-public class MapInfo
+internal class MapInfo
 {
     public readonly EntityPlayer Player;
     public int[] StartZ;

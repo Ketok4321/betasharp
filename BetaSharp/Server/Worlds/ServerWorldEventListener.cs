@@ -5,12 +5,12 @@ using BetaSharp.Worlds;
 
 namespace BetaSharp.Server.Worlds;
 
-public class ServerWorldEventListener : IWorldAccess
+internal class ServerWorldEventListener : IWorldAccess
 {
-    private readonly MinecraftServer server;
+    private readonly BetaSharpServer server;
     private readonly ServerWorld world;
 
-    public ServerWorldEventListener(MinecraftServer server, ServerWorld world)
+    public ServerWorldEventListener(BetaSharpServer server, ServerWorld world)
     {
         this.server = server;
         this.world = world;

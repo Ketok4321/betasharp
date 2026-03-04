@@ -54,8 +54,8 @@ public class GuiAudio : GuiScreen
 
             if (btn.Id == 200)
             {
-                mc.options.SaveOptions();
-                mc.displayGuiScreen(_parentScreen);
+                Game.options.SaveOptions();
+                Game.displayGuiScreen(_parentScreen);
             }
         }
     }
@@ -63,7 +63,7 @@ public class GuiAudio : GuiScreen
     public override void Render(int mouseX, int mouseY, float partialTicks)
     {
         DrawDefaultBackground();
-        DrawCenteredString(FontRenderer, _screenTitle, Width / 2, 20, 0xFFFFFF);
+        DrawCenteredString(FontRenderer, _screenTitle, Width / 2, 20, Color.White);
         base.Render(mouseX, mouseY, partialTicks);
     }
 }

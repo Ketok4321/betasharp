@@ -2,12 +2,13 @@ using BetaSharp.Blocks;
 using BetaSharp.Client.Rendering.Blocks;
 using BetaSharp.Client.Rendering.Core;
 using BetaSharp.Util;
+using BetaSharp.Util.Maths;
 using BetaSharp.Worlds;
 using Silk.NET.Maths;
 
 namespace BetaSharp.Client.Rendering.Chunks;
 
-public struct MeshBuildResult
+internal struct MeshBuildResult
 {
     public PooledList<ChunkVertex> Solid;
     public PooledList<ChunkVertex> Translucent;
@@ -23,7 +24,7 @@ public struct MeshBuildResult
     }
 }
 
-public class ChunkMeshGenerator : IDisposable
+internal class ChunkMeshGenerator : IDisposable
 {
     private readonly PooledQueue<MeshBuildResult> results = new();
     private readonly ObjectPool<PooledList<ChunkVertex>> listPool =
@@ -108,7 +109,6 @@ public class ChunkMeshGenerator : IDisposable
         };
 
         var tess = new Tessellator();
-        var rb = new BlockRenderer(cache, tess);
 
         for (int pass = 0; pass < 2; pass++)
         {
@@ -133,7 +133,7 @@ public class ChunkMeshGenerator : IDisposable
                         if (blockPass != pass)
                             hasNextPass = true;
                         else
-                            rb.renderBlockByRenderType(b, x, y, z);
+                            BlockRenderer.RenderBlockByRenderType(cache, b, new BlockPos(x, y, z), tess);
                     }
                 }
             }

@@ -71,7 +71,7 @@ public class Connection
             lock (lockObj)
             {
                 sendQueueSize += packet.Size() + 1;
-                if (packet.WorldPacket)
+                if (Packet.Registry[packet.Id]!.WorldPacket)
                 {
                     delayedSendQueue.add(packet);
                 }
@@ -96,10 +96,10 @@ public class Connection
         try
         {
             int[] sizeStats;
-            int packetId;
             Packet packet;
             object lockObj;
-            if (!sendQueue.isEmpty() && (lag == 0 || java.lang.System.currentTimeMillis() - ((Packet)sendQueue.get(0)).CreationTime >= lag))
+            if (!sendQueue.isEmpty() && (lag == 0 || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+ - ((Packet)sendQueue.get(0)).CreationTime >= lag))
             {
                 lockObj = lck;
                 lock (lockObj)
@@ -110,12 +110,12 @@ public class Connection
 
                 Packet.Write(packet, _networkStream);
                 sizeStats = TOTAL_SEND_SIZE;
-                packetId = packet.GetRawId();
-                sizeStats[packetId] += packet.Size() + 1;
+                sizeStats[packet.Id] += packet.Size() + 1;
                 wrotePacket = true;
             }
 
-            if (_delay-- <= 0 && !delayedSendQueue.isEmpty() && (lag == 0 || java.lang.System.currentTimeMillis() - ((Packet)delayedSendQueue.get(0)).CreationTime >= lag))
+            if (_delay-- <= 0 && !delayedSendQueue.isEmpty() && (lag == 0 || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+ - ((Packet)delayedSendQueue.get(0)).CreationTime >= lag))
             {
                 lockObj = lck;
                 lock (lockObj)
@@ -126,8 +126,7 @@ public class Connection
 
                 Packet.Write(packet, _networkStream);
                 sizeStats = TOTAL_SEND_SIZE;
-                packetId = packet.GetRawId();
-                sizeStats[packetId] += packet.Size() + 1;
+                sizeStats[packet.Id] += packet.Size() + 1;
                 _delay = 0;
                 wrotePacket = true;
             }
@@ -171,7 +170,7 @@ public class Connection
             if (packet != null)
             {
                 int[] sizeStats = TOTAL_READ_SIZE;
-                int packetId = packet.GetRawId();
+                int packetId = packet.Id;
                 sizeStats[packetId] += packet.Size() + 1;
                 readQueue.add(packet);
                 receivedPacket = true;

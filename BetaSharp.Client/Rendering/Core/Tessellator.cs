@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using BetaSharp.Client.Guis;
 using BetaSharp.Util;
-using Silk.NET.OpenGL.Legacy;
+using Silk.NET.OpenGL;
+using GLEnum = BetaSharp.Client.Rendering.Core.OpenGL.GLEnum;
 
 namespace BetaSharp.Client.Rendering.Core;
 
@@ -411,6 +413,35 @@ public class Tessellator
             }
 
         }
+    }
+
+    public void setColorOpaque(Color c)
+    {
+        if (isColorDisabled) return;
+        if (BitConverter.IsLittleEndian)
+        {
+            color = (int)c | 255;
+        }
+        else
+        {
+            color = ((int)c << 8) | 255;
+        }
+        hasColor = true;
+    }
+
+    public void setColorRGBA(Color c)
+    {
+        if (isColorDisabled) return;
+        if (BitConverter.IsLittleEndian)
+        {
+            color = (int)c;
+        }
+        else
+        {
+            int v = (int)c;
+            color = (v << 8) | (v >> 24);
+        }
+        hasColor = true;
     }
 
     public void addVertexWithUV(double x, double y, double z, double u, double v)

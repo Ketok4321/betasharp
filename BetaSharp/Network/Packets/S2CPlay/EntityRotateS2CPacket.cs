@@ -2,18 +2,18 @@ using System.Net.Sockets;
 
 namespace BetaSharp.Network.Packets.S2CPlay;
 
-public class EntityRotateS2CPacket : EntityS2CPacket
+internal class EntityRotateS2CPacket : EntityS2CPacket
 {
-    public EntityRotateS2CPacket()
+    public EntityRotateS2CPacket() : base(PacketId.EntityRotateS2C)
     {
         rotate = true;
     }
 
-    public EntityRotateS2CPacket(int entityId, byte yaw, byte pitch) : base(entityId)
+    public EntityRotateS2CPacket(int entityId, byte yaw, byte pitch) : this()
     {
+        EntityId = entityId;
         this.yaw = (sbyte)yaw;
         this.pitch = (sbyte)pitch;
-        rotate = true;
     }
 
     public override void Read(NetworkStream stream)

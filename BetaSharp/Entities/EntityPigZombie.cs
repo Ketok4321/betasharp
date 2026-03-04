@@ -4,7 +4,7 @@ using BetaSharp.Worlds;
 
 namespace BetaSharp.Entities;
 
-public class EntityPigZombie : EntityZombie
+internal class EntityPigZombie : EntityZombie
 {
     private int angerLevel;
     private int randomSoundDelay;
@@ -31,7 +31,7 @@ public class EntityPigZombie : EntityZombie
 
     public override bool canSpawn()
     {
-        return world.difficulty > 0 && world.canSpawnEntity(boundingBox) && world.getEntityCollisions(this, boundingBox).Count == 0 && !world.isBoxSubmergedInFluid(boundingBox);
+        return world.difficulty > 0 && world.canSpawnEntity(boundingBox) && world.GetEntityCollisions(this, boundingBox).Count == 0 && !world.isBoxSubmergedInFluid(boundingBox);
     }
 
     public override void writeNbt(NBTTagCompound nbt)

@@ -24,14 +24,14 @@ public class GuiChest : GuiContainer
 
     protected override void DrawGuiContainerForegroundLayer()
     {
-        FontRenderer.DrawString(_lowerChestInventory.getName(), 8, 6, 0x404040);
-        FontRenderer.DrawString(_upperChestInventory.getName(), 8, _ySize - 96 + 2, 0x404040);
+        FontRenderer.DrawString(_lowerChestInventory.getName(), 8, 6, Color.Gray40);
+        FontRenderer.DrawString(_upperChestInventory.getName(), 8, _ySize - 96 + 2, Color.Gray40);
     }
 
     protected override void DrawGuiContainerBackgroundLayer(float partialTicks)
     {
         GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
-        mc.textureManager.BindTexture(mc.textureManager.GetTextureId("/gui/container.png"));
+        Game.textureManager.BindTexture(Game.textureManager.GetTextureId("/gui/container.png"));
 
         int guiLeft = (Width - _xSize) / 2;
         int guiTop = (Height - _ySize) / 2;

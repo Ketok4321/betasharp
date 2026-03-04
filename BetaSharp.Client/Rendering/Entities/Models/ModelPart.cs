@@ -1,6 +1,6 @@
 using BetaSharp.Client.Rendering.Core;
-using BetaSharp.Client.Textures;
-using Silk.NET.OpenGL.Legacy;
+using BetaSharp.Client.Rendering.Core.OpenGL;
+using BetaSharp.Client.Rendering.Core.Textures;
 
 namespace BetaSharp.Client.Rendering.Entities.Models;
 

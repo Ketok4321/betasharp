@@ -1,11 +1,11 @@
 using BetaSharp.Client.Options;
 using BetaSharp.Client.Rendering.Core;
+using BetaSharp.Client.Rendering.Core.OpenGL;
 using BetaSharp.Client.Rendering.Core.Textures;
 using BetaSharp.Entities;
-using java.util;
-using Silk.NET.OpenGL.Legacy;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Color = BetaSharp.Client.Guis.Color;
 
 namespace BetaSharp.Client.Rendering;
 
@@ -72,17 +72,17 @@ public class MapItemRenderer
         GLManager.GL.Enable(GLEnum.AlphaTest);
         GLManager.GL.Disable(GLEnum.Blend);
         textureManager.BindTexture(textureManager.GetTextureId("/misc/mapicons.png"));
-        foreach (var coord in mapState.Icons)
+        foreach (var icon in mapState.Icons)
         {
             GLManager.GL.PushMatrix();
-            GLManager.GL.Translate((sbyte)coord.x / 2.0F + 64.0F, (sbyte)coord.z / 2.0F + 64.0F, -0.02F);
-            GLManager.GL.Rotate((sbyte)coord.rotation * 360 / 16.0F, 0.0F, 0.0F, 1.0F);
+            GLManager.GL.Translate((sbyte)icon.x / 2.0F + 64.0F, (sbyte)icon.z / 2.0F + 64.0F, -0.02F);
+            GLManager.GL.Rotate((sbyte)icon.rotation * 360 / 16.0F, 0.0F, 0.0F, 1.0F);
             GLManager.GL.Scale(4.0F, 4.0F, 3.0F);
             GLManager.GL.Translate(-(2.0F / 16.0F), 2.0F / 16.0F, 0.0F);
-            float uMin = (coord.type % 4 + 0) / 4.0F;
-            float vMin = (coord.type / 4 + 0) / 4.0F;
-            float uMax = (coord.type % 4 + 1) / 4.0F;
-            float vMax = (coord.type / 4 + 1) / 4.0F;
+            float uMin = (icon.type % 4 + 0) / 4.0F;
+            float vMin = (icon.type / 4 + 0) / 4.0F;
+            float uMax = (icon.type % 4 + 1) / 4.0F;
+            float vMax = (icon.type / 4 + 1) / 4.0F;
             tess.startDrawingQuads();
             tess.addVertexWithUV(-1, 1, 0, uMin, vMin);
             tess.addVertexWithUV(1, 1, 0, uMax, vMin);
@@ -91,5 +91,11 @@ public class MapItemRenderer
             tess.draw();
             GLManager.GL.PopMatrix();
         }
+
+        GLManager.GL.PushMatrix();
+        GLManager.GL.Translate(0.0F, 0.0F, -0.04F);
+        GLManager.GL.Scale(1.0F, 1.0F, 1.0F);
+        _textRenderer.DrawString(mapState.id, 0, 0, Color.White);
+        GLManager.GL.PopMatrix();
     }
 }

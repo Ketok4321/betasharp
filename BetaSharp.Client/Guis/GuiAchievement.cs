@@ -1,8 +1,8 @@
-using System;
 using BetaSharp.Client.Rendering.Core;
 using BetaSharp.Client.Rendering.Items;
 using BetaSharp.Stats;
-using Silk.NET.OpenGL.Legacy;
+using Silk.NET.OpenGL;
+using GLEnum = BetaSharp.Client.Rendering.Core.OpenGL.GLEnum;
 
 namespace BetaSharp.Client.Guis;
 
@@ -13,7 +13,7 @@ public class GuiAchievement : Gui
     private static readonly string AltLocationWarningText = "(Or logged in from another location)";
     private static readonly string PurchasePromptText = "Purchase at minecraft.net";
 
-    private readonly Minecraft _theGame;
+    private readonly BetaSharp _theGame;
     private int _achievementWindowWidth;
     private int _achievementWindowHeight;
     private string _achievementTitle;
@@ -23,9 +23,9 @@ public class GuiAchievement : Gui
     private readonly ItemRenderer _itemRender;
     private bool _isAchievementInformation;
 
-    public GuiAchievement(Minecraft mc)
+    public GuiAchievement(BetaSharp game)
     {
-        _theGame = mc;
+        _theGame = game;
         _itemRender = new ItemRenderer();
     }
 
@@ -64,7 +64,7 @@ public class GuiAchievement : Gui
         GLManager.GL.Clear(ClearBufferMask.DepthBufferBit);
         GLManager.GL.MatrixMode(GLEnum.Projection);
         GLManager.GL.LoadIdentity();
-        GLManager.GL.Ortho(0.0D, _achievementWindowWidth, _achievementWindowHeight, 0.0D, 1000.0D, 3000.0D);
+        GLManager.GL.Ortho(0.0D, _achievementWindowWidth, _achievementWindowHeight, 0.0D, -3000.0D, 3000.0D);
         GLManager.GL.MatrixMode(GLEnum.Modelview);
         GLManager.GL.LoadIdentity();
         GLManager.GL.Translate(0.0F, 0.0F, -2000.0F);
@@ -72,70 +72,48 @@ public class GuiAchievement : Gui
 
     public void updateAchievementWindow()
     {
-        if (Minecraft.hasPaidCheckTime > 0L)
+        if (BetaSharp.hasPaidCheckTime > 0L)
         {
             displayLicenseWarning();
         }
-
-        if (_theAchievement != null && _achievementDisplayStartTime != 0L)
-        {
-            displayAchievementNotification();
-        }
     }
 
-    private void displayLicenseWarning()
+    public void RenderAchievementOverlayIfAny(int scaledWidth, int scaledHeight)
     {
-        GLManager.GL.Disable(GLEnum.DepthTest);
-        GLManager.GL.DepthMask(false);
-        Lighting.turnOff();
-        updateAchievementWindowScale();
+        if (_theAchievement == null || _achievementDisplayStartTime == 0L)
+            return;
 
-        _theGame.fontRenderer.DrawStringWithShadow(LicenseWarningText, 2, 2, 0xFFFFFF);
-        _theGame.fontRenderer.DrawStringWithShadow(AltLocationWarningText, 2, 11, 0xFFFFFF);
-        _theGame.fontRenderer.DrawStringWithShadow(PurchasePromptText, 2, 20, 0xFFFFFF);
-
-        GLManager.GL.DepthMask(true);
-        GLManager.GL.Enable(GLEnum.DepthTest);
-    }
-
-    private void displayAchievementNotification()
-    {
-        double elapsedTime = (java.lang.System.currentTimeMillis() - _achievementDisplayStartTime) / AchievementDisplayDuration;
-
-        if (_isAchievementInformation || _isAchievementInformation || elapsedTime >= 0.0D && elapsedTime <= 1.0D)
-        {
-            renderAchievementNotification(elapsedTime);
-        }
-        else
+        double elapsedTime = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _achievementDisplayStartTime) / (double)AchievementDisplayDuration;
+        if (!_isAchievementInformation && (elapsedTime < 0.0D || elapsedTime > 1.0D))
         {
             _achievementDisplayStartTime = 0L;
+            return;
         }
+
+        renderAchievementInCurrentState(scaledWidth, scaledHeight, elapsedTime);
     }
 
-    private void renderAchievementNotification(double elapsedTime)
+    private void renderAchievementInCurrentState(int scaledWidth, int scaledHeight, double elapsedTime)
     {
-        updateAchievementWindowScale();
         GLManager.GL.Disable(GLEnum.DepthTest);
         GLManager.GL.DepthMask(false);
+        GLManager.GL.Enable(GLEnum.Texture2D);
+        GLManager.GL.Enable(GLEnum.Blend);
+        GLManager.GL.BlendFunc(GLEnum.SrcAlpha, GLEnum.OneMinusSrcAlpha);
+        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
 
         double animationProgress = calculateAnimationProgress(elapsedTime);
-        int achievementX = _achievementWindowWidth - 160;
+        int achievementX = scaledWidth - 160;
         int achievementY = 0 - (int)(animationProgress * 36.0D);
-        int achievementTextureId = _theGame.textureManager.GetTextureId("/achievement/bg.png").Id;
 
-        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
-        GLManager.GL.Enable(GLEnum.Lighting);
         _theGame.textureManager.BindTexture(_theGame.textureManager.GetTextureId("/achievement/bg.png"));
-        GLManager.GL.Disable(GLEnum.Lighting);
-
+        _zLevel = -90.0F;
         DrawTexturedModalRect(achievementX, achievementY, 96, 202, 160, 32);
         drawAchievementText(achievementX, achievementY);
 
         GLManager.GL.PushMatrix();
         GLManager.GL.Rotate(180.0F, 1.0F, 0.0F, 0.0F);
-
         Lighting.turnOn();
-
         GLManager.GL.PopMatrix();
         GLManager.GL.Disable(GLEnum.Lighting);
         GLManager.GL.Enable(GLEnum.RescaleNormal);
@@ -145,6 +123,21 @@ public class GuiAchievement : Gui
         _itemRender.renderItemIntoGUI(_theGame.fontRenderer, _theGame.textureManager, _theAchievement.icon, achievementX + 8, achievementY + 8);
 
         GLManager.GL.Disable(GLEnum.Lighting);
+        GLManager.GL.DepthMask(true);
+        GLManager.GL.Enable(GLEnum.DepthTest);
+    }
+
+    private void displayLicenseWarning()
+    {
+        GLManager.GL.Disable(GLEnum.DepthTest);
+        GLManager.GL.DepthMask(false);
+        Lighting.turnOff();
+        updateAchievementWindowScale();
+
+        _theGame.fontRenderer.DrawStringWithShadow(LicenseWarningText, 2, 2, Color.White);
+        _theGame.fontRenderer.DrawStringWithShadow(AltLocationWarningText, 2, 11, Color.White);
+        _theGame.fontRenderer.DrawStringWithShadow(PurchasePromptText, 2, 20, Color.White);
+
         GLManager.GL.DepthMask(true);
         GLManager.GL.Enable(GLEnum.DepthTest);
     }
@@ -173,12 +166,12 @@ public class GuiAchievement : Gui
     {
         if (_isAchievementInformation)
         {
-            _theGame.fontRenderer.DrawStringWrapped(_achievementDescription ?? "", achievementX + 30, achievementY + 7, 120, 0xFFFFFFFF);
+            _theGame.fontRenderer.DrawStringWrapped(_achievementDescription ?? "", achievementX + 30, achievementY + 7, 120, Color.White);
         }
         else
         {
-            _theGame.fontRenderer.DrawString(_achievementTitle, achievementX + 30, achievementY + 7, 0xFFFFFF00);
-            _theGame.fontRenderer.DrawString(_achievementDescription ?? "", achievementX + 30, achievementY + 18, 0xFFFFFFFF);
+            _theGame.fontRenderer.DrawString(_achievementTitle, achievementX + 30, achievementY + 7, Color.Yellow);
+            _theGame.fontRenderer.DrawString(_achievementDescription ?? "", achievementX + 30, achievementY + 18, Color.White);
         }
     }
 

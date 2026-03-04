@@ -2,7 +2,6 @@ using BetaSharp.Client.Input;
 using BetaSharp.Util;
 using BetaSharp.Util.Maths;
 using BetaSharp.Worlds.Storage;
-using java.lang;
 
 namespace BetaSharp.Client.Guis;
 
@@ -67,7 +66,7 @@ public class GuiCreateWorld : GuiScreen
             _folderName = "World";
         }
 
-        _folderName = GenerateUnusedFolderName(mc.getSaveLoader(), _folderName);
+        _folderName = GenerateUnusedFolderName(Game.getSaveLoader(), _folderName);
     }
 
     public static string GenerateUnusedFolderName(IWorldStorageSource worldStorage, string baseFolderName)
@@ -92,7 +91,7 @@ public class GuiCreateWorld : GuiScreen
             switch (button.Id)
             {
                 case ButtonCancel:
-                    mc.displayGuiScreen(_parentScreen);
+                    Game.displayGuiScreen(_parentScreen);
                     break;
                 case ButtonCreate:
                     {
@@ -108,13 +107,13 @@ public class GuiCreateWorld : GuiScreen
                         {
                             try
                             {
-                                long parsedSeed = Long.parseLong(seedInput);
+                                long parsedSeed = long.Parse(seedInput);
                                 if (parsedSeed != 0L)
                                 {
                                     worldSeed = parsedSeed;
                                 }
                             }
-                            catch (NumberFormatException)
+                            catch (Exception)
                             {
                                 // Java based string hashing
                                 int hash = 0;
@@ -126,8 +125,9 @@ public class GuiCreateWorld : GuiScreen
                             }
                         }
 
-                        mc.playerController = new PlayerControllerSP(mc);
-                        mc.startWorld(_folderName, _textboxWorldName.GetText(), worldSeed);
+                        Game.statFileWriter.ReadStat(Stats.Stats.CreateWorldStat, 1);
+                        Game.playerController = new PlayerControllerSP(Game);
+                        Game.startWorld(_folderName, _textboxWorldName.GetText(), worldSeed);
                         break;
                     }
             }
@@ -169,11 +169,11 @@ public class GuiCreateWorld : GuiScreen
         int centerY = Height / 4;
 
         DrawDefaultBackground();
-        DrawCenteredString(FontRenderer, translations.TranslateKey("selectWorld.create"), centerX, centerY - 60 + 20, 0xFFFFFF);
-        DrawString(FontRenderer, translations.TranslateKey("selectWorld.enterName"), centerX - 100, centerY - 10, 0xA0A0A0);
-        DrawString(FontRenderer, $"{translations.TranslateKey("selectWorld.resultFolder")} {_folderName}", centerX - 100, centerY + 24, 0xA0A0A0);
-        DrawString(FontRenderer, translations.TranslateKey("selectWorld.enterSeed"), centerX - 100, centerY + 56 - 12, 0xA0A0A0);
-        DrawString(FontRenderer, translations.TranslateKey("selectWorld.seedInfo"), centerX - 100, centerY + 56 + 24, 0xA0A0A0);
+        DrawCenteredString(FontRenderer, translations.TranslateKey("selectWorld.create"), centerX, centerY - 60 + 20, Color.White);
+        DrawString(FontRenderer, translations.TranslateKey("selectWorld.enterName"), centerX - 100, centerY - 10, Color.GrayA0);
+        DrawString(FontRenderer, $"{translations.TranslateKey("selectWorld.resultFolder")} {_folderName}", centerX - 100, centerY + 24, Color.GrayA0);
+        DrawString(FontRenderer, translations.TranslateKey("selectWorld.enterSeed"), centerX - 100, centerY + 56 - 12, Color.GrayA0);
+        DrawString(FontRenderer, translations.TranslateKey("selectWorld.seedInfo"), centerX - 100, centerY + 56 + 24, Color.GrayA0);
         _textboxWorldName.DrawTextBox();
         _textboxSeed.DrawTextBox();
         base.Render(mouseX, mouseY, partialTicks);

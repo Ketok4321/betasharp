@@ -1,12 +1,12 @@
 using BetaSharp.Client.Input;
 using BetaSharp.Client.Rendering.Core;
-using Silk.NET.OpenGL.Legacy;
+using BetaSharp.Client.Rendering.Core.OpenGL;
 
 namespace BetaSharp.Client.Guis;
 
 public abstract class GuiSlot
 {
-    private readonly Minecraft _mc;
+    private readonly BetaSharp _game;
     private readonly int _width;
     private readonly int _height;
     protected readonly int _top;
@@ -27,9 +27,9 @@ public abstract class GuiSlot
     private bool _hasHeader;
     private int _headerHeight;
 
-    public GuiSlot(Minecraft mc, int width, int height, int top, int bottom, int posZ)
+    public GuiSlot(BetaSharp game, int width, int height, int top, int bottom, int posZ)
     {
-        _mc = mc;
+        _game = game;
         _width = width;
         _height = height;
         _top = top;
@@ -71,10 +71,9 @@ public abstract class GuiSlot
 
     public int GetSlotAt(int mouseX, int mouseY)
     {
-        int centerX = _width / 2 - 110;
-        int minX = centerX + 110;
-        int maxX = mouseY - _top - _headerHeight + (int)_amountScrolled - 4;
-        int relativeY = maxX / _posZ;
+        int minX = _width / 2 - 110;
+        int maxX = _width / 2 + 110;
+        int relativeY = mouseY - _top - _headerHeight + (int)_amountScrolled - 4;
         int index = relativeY / _posZ;
 
         return (mouseX >= minX && mouseX <= maxX && index >= 0 && relativeY >= 0 && index < GetSize())
@@ -139,10 +138,12 @@ public abstract class GuiSlot
 
                     if (mouseX >= contentMinX && mouseX <= contentMaxX && slotIndex >= 0 && relativeY >= 0 && slotIndex < listSize)
                     {
-                        bool isDoubleClick = slotIndex == _selectedElement && (java.lang.System.currentTimeMillis() - _lastClicked < 250L);
+                        bool isDoubleClick = slotIndex == _selectedElement && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+ - _lastClicked < 250L);
                         ElementClicked(slotIndex, isDoubleClick);
                         _selectedElement = slotIndex;
-                        _lastClicked = java.lang.System.currentTimeMillis();
+                        _lastClicked = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+;
                     }
                     else if (mouseX >= contentMinX && mouseX <= contentMaxX && relativeY < 0)
                     {
@@ -188,7 +189,7 @@ public abstract class GuiSlot
         GLManager.GL.Disable(GLEnum.Fog);
         var tess = Tessellator.instance;
 
-        _mc.textureManager.BindTexture(_mc.textureManager.GetTextureId("/gui/background.png"));
+        _game.textureManager.BindTexture(_game.textureManager.GetTextureId("/gui/background.png"));
         GLManager.GL.Color4(1.0f, 1.0f, 1.0f, 1.0f);
         const float textureScale = 32.0f;
 
@@ -318,9 +319,9 @@ public abstract class GuiSlot
     private void OverlayBackground(int startY, int endY, int alphaStart, int alphaEnd)
     {
         var tess = Tessellator.instance;
-        var textureId = (uint)_mc.textureManager.GetTextureId("/gui/background.png").Id;
+        var textureId = (uint)_game.textureManager.GetTextureId("/gui/background.png").Id;
 
-        _mc.textureManager.BindTexture(_mc.textureManager.GetTextureId("/gui/background.png"));
+        _game.textureManager.BindTexture(_game.textureManager.GetTextureId("/gui/background.png"));
         GLManager.GL.Color4(1.0f, 1.0f, 1.0f, 1.0f);
 
         const float textureScale = 32.0f;

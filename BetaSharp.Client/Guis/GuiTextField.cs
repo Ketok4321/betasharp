@@ -1,8 +1,6 @@
 using BetaSharp.Client.Input;
 using BetaSharp.Client.Rendering;
 using BetaSharp.Util;
-using java.awt;
-using java.awt.datatransfer;
 
 namespace BetaSharp.Client.Guis;
 
@@ -169,7 +167,7 @@ public class GuiTextField : Gui
         }
 
         // Regular character input
-        if (ChatAllowedCharacters.allowedCharacters.IndexOf(eventChar) >= 0 && (_text.Length < _maxStringLength || _maxStringLength == 0))
+        if (ChatAllowedCharacters.IsAllowedCharacter(eventChar) && (_text.Length < _maxStringLength || _maxStringLength == 0))
         {
             if (HasSelection())
             {
@@ -200,8 +198,8 @@ public class GuiTextField : Gui
 
     public void DrawTextBox()
     {
-        DrawRect(_xPos - 1, _yPos - 1, _xPos + _width + 1, _yPos + _height + 1, 0xFFA0A0A0);
-        DrawRect(_xPos, _yPos, _xPos + _width, _yPos + _height, 0xFF000000);
+        DrawRect(_xPos - 1, _yPos - 1, _xPos + _width + 1, _yPos + _height + 1, Color.GrayA0);
+        DrawRect(_xPos, _yPos, _xPos + _width, _yPos + _height, Color.Black);
 
         if (IsEnabled)
         {
@@ -210,11 +208,11 @@ public class GuiTextField : Gui
 
             string renderText = _text.Insert(safePos, cursor);
 
-            DrawString(_fontRenderer, renderText, _xPos + 4, _yPos + (_height - 8) / 2, 0xE0E0E0);
+            DrawString(_fontRenderer, renderText, _xPos + 4, _yPos + (_height - 8) / 2, Color.Gray80);
         }
         else
         {
-            DrawString(_fontRenderer, _text, _xPos + 4, _yPos + (_height - 8) / 2, 0x707070);
+            DrawString(_fontRenderer, _text, _xPos + 4, _yPos + (_height - 8) / 2, Color.Gray70);
         }
     }
 

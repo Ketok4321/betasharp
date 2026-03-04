@@ -1,5 +1,6 @@
 using Silk.NET.Maths;
-using Silk.NET.OpenGL.Legacy;
+using Silk.NET.OpenGL;
+using GLEnum = BetaSharp.Client.Rendering.Core.OpenGL.GLEnum;
 
 namespace BetaSharp.Client.Rendering.Core.OpenGL;
 
@@ -16,6 +17,7 @@ public unsafe class EmulatedGL : LegacyGL
     private uint _currentProgram = 0;
     private bool _alphaTestEnabled = false;
     private float _alphaThreshold = 0.1f;
+    private int _shadeModel = 1;
 
     private struct LightingState
     {
@@ -116,6 +118,7 @@ public unsafe class EmulatedGL : LegacyGL
             _shader.SetAlphaThreshold(_alphaTestEnabled ? _alphaThreshold : -1.0f);
             _shader.SetEnableLighting(_lightingState.LightingEnabled);
             _shader.SetEnableFog(_fogState.FogEnabled);
+            _shader.SetShadeModel(_shadeModel);
             _dirtyState.StateDirty = false;
         }
 
@@ -212,7 +215,7 @@ public unsafe class EmulatedGL : LegacyGL
             _displayLists.CaptureVertexData((byte*)data, (int)size);
         }
 
-        SilkGL.BufferData(target, size, data, usage);
+        SilkGL.BufferData(target.ToModern(), size, data, usage.ToModern());
     }
 
     public override void MatrixMode(GLEnum mode)
@@ -306,28 +309,28 @@ public unsafe class EmulatedGL : LegacyGL
     {
         if (_displayLists.IsCompiling) { _displayLists.SetStride(stride); return; }
         SilkGL.BindVertexArray(_immediateVao);
-        SilkGL.VertexAttribPointer(0, size, type, false, stride, pointer);
+        SilkGL.VertexAttribPointer(0, size, type.ToModern(), false, stride, pointer);
     }
 
     public override void ColorPointer(int size, ColorPointerType type, uint stride, void* pointer)
     {
         if (_displayLists.IsCompiling) return;
         SilkGL.BindVertexArray(_immediateVao);
-        SilkGL.VertexAttribPointer(1, size, (GLEnum)type, true, stride, pointer);
+        SilkGL.VertexAttribPointer(1, size, (Silk.NET.OpenGL.GLEnum)type, true, stride, pointer);
     }
 
     public override void TexCoordPointer(int size, GLEnum type, uint stride, void* pointer)
     {
         if (_displayLists.IsCompiling) return;
         SilkGL.BindVertexArray(_immediateVao);
-        SilkGL.VertexAttribPointer(2, size, type, false, stride, pointer);
+        SilkGL.VertexAttribPointer(2, size, type.ToModern(), false, stride, pointer);
     }
 
     public override void NormalPointer(NormalPointerType type, uint stride, void* pointer)
     {
         if (_displayLists.IsCompiling) return;
         SilkGL.BindVertexArray(_immediateVao);
-        SilkGL.VertexAttribPointer(3, 3, (GLEnum)type, true, stride, pointer);
+        SilkGL.VertexAttribPointer(3, 3, (Silk.NET.OpenGL.GLEnum)type, true, stride, pointer);
     }
 
     public override void EnableClientState(GLEnum array)
@@ -372,7 +375,7 @@ public unsafe class EmulatedGL : LegacyGL
             case GLEnum.RescaleNormal: return;
         }
         if (_displayLists.IsCompiling) return;
-        SilkGL.Enable(cap);
+        SilkGL.Enable(cap.ToModern());
     }
 
     public override void Disable(GLEnum cap)
@@ -389,7 +392,7 @@ public unsafe class EmulatedGL : LegacyGL
             case GLEnum.RescaleNormal: return;
         }
         if (_displayLists.IsCompiling) return;
-        SilkGL.Disable(cap);
+        SilkGL.Disable(cap.ToModern());
     }
 
     public override void Disable(EnableCap cap)
@@ -469,6 +472,12 @@ public unsafe class EmulatedGL : LegacyGL
 
     public override void ShadeModel(GLEnum mode)
     {
+        int newModel = mode == GLEnum.Smooth ? 1 : 0;
+        if (_shadeModel != newModel)
+        {
+            _shadeModel = newModel;
+            _dirtyState.StateDirty = true;
+        }
     }
 
     public override void Normal3(float nx, float ny, float nz)
@@ -489,7 +498,7 @@ public unsafe class EmulatedGL : LegacyGL
             ActivateShader();
         }
 
-        SilkGL.DrawArrays(mode, first, count);
+        SilkGL.DrawArrays(mode.ToModern(), first, count);
     }
 
     public override void UseProgram(uint program)

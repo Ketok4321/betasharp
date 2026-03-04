@@ -7,12 +7,8 @@ namespace BetaSharp.Client.Guis;
 
 public class GuiChat : GuiScreen
 {
-    private const uint BackgroundColor = 0x80000000;
-    private const uint TextColorNormal = 0xE0E0E0;
-
     protected string _message = "";
     private int _updateCounter = 0;
-    private static readonly string s_allowedChars = ChatAllowedCharacters.allowedCharacters;
     private static readonly List<string> s_history = [];
     private int _historyIndex = 0;
 
@@ -45,7 +41,7 @@ public class GuiChat : GuiScreen
     {
         if (eventKey == Keyboard.KEY_ESCAPE)
         {
-            mc.displayGuiScreen(null);
+            Game.displayGuiScreen(null);
             return;
         }
 
@@ -55,7 +51,7 @@ public class GuiChat : GuiScreen
             if (msg.Length > 0)
             {
                 string sendMsg = ConvertAmpersandToSection(msg);
-                mc.player.sendChatMessage(sendMsg);
+                Game.player.sendChatMessage(sendMsg);
                 s_history.Add(sendMsg);
                 if (s_history.Count > 100)
                 {
@@ -63,7 +59,7 @@ public class GuiChat : GuiScreen
                 }
             }
 
-            mc.displayGuiScreen(null);
+            Game.displayGuiScreen(null);
             _message = "";
             return;
         }
@@ -80,7 +76,7 @@ public class GuiChat : GuiScreen
             }
             else
             {
-                mc.ingameGUI.scrollChat(1);
+                Game.ingameGUI.scrollChat(1);
             }
             return;
         }
@@ -102,7 +98,7 @@ public class GuiChat : GuiScreen
             }
             else
             {
-                mc.ingameGUI.scrollChat(-1);
+                Game.ingameGUI.scrollChat(-1);
             }
             return;
         }
@@ -119,7 +115,7 @@ public class GuiChat : GuiScreen
 
     protected override void CharTyped(char eventChar)
     {
-        if (s_allowedChars.Contains(eventChar) && _message.Length < 100)
+        if (ChatAllowedCharacters.IsAllowedCharacter(eventChar) && _message.Length < 100)
         {
             _message += eventChar;
         }
@@ -128,7 +124,7 @@ public class GuiChat : GuiScreen
 
     public override void Render(int mouseX, int mouseY, float partialTicks)
     {
-        DrawRect(2, Height - 14, Width - 2, Height - 2, BackgroundColor);
+        DrawRect(2, Height - 14, Width - 2, Height - 2, Color.BackgroundBlackAlpha);
 
         string cursor = (_updateCounter / 6 % 2 == 0) ? "_" : "";
         string textToDraw = "> " + _message + cursor;
@@ -136,7 +132,7 @@ public class GuiChat : GuiScreen
         int y = Height - 12;
         int xBase = 4;
 
-        FontRenderer.DrawStringWithShadow(textToDraw, xBase, y, TextColorNormal);
+        FontRenderer.DrawStringWithShadow(textToDraw, xBase, y, Color.GrayE0);
 
         base.Render(mouseX, mouseY, partialTicks);
     }
@@ -147,7 +143,7 @@ public class GuiChat : GuiScreen
         int wheel = Mouse.getEventDWheel();
         if (wheel != 0)
         {
-            mc.ingameGUI.scrollChat(wheel > 0 ? 1 : -1);
+            Game.ingameGUI.scrollChat(wheel > 0 ? 1 : -1);
         }
     }
 
@@ -155,14 +151,14 @@ public class GuiChat : GuiScreen
     {
         if (button != 0) return;
 
-        if (mc.ingameGUI._hoveredItemName != null)
+        if (Game.ingameGUI._hoveredItemName != null)
         {
             if (_message.Length > 0 && !_message.EndsWith(" "))
             {
                 _message += " ";
             }
 
-            _message += mc.ingameGUI._hoveredItemName;
+            _message += Game.ingameGUI._hoveredItemName;
 
             const byte maxLen = 100;
             if (_message.Length > maxLen)

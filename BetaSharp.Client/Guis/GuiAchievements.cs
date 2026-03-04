@@ -1,21 +1,21 @@
 using BetaSharp.Blocks;
 using BetaSharp.Client.Input;
 using BetaSharp.Client.Rendering.Core;
+using BetaSharp.Client.Rendering.Core.OpenGL;
 using BetaSharp.Client.Rendering.Core.Textures;
 using BetaSharp.Client.Rendering.Items;
 using BetaSharp.Stats;
 using BetaSharp.Util.Maths;
-using Silk.NET.OpenGL.Legacy;
 
 namespace BetaSharp.Client.Guis;
 
 public class GuiAchievements : GuiScreen
 {
 
-    private static readonly int field_27126_s = BetaSharp.Achievements.minColumn * 24 - 112;
-    private static readonly int field_27125_t = BetaSharp.Achievements.minRow * 24 - 112;
-    private static readonly int field_27124_u = BetaSharp.Achievements.maxColumn * 24 - 77;
-    private static readonly int field_27123_v = BetaSharp.Achievements.maxRow * 24 - 77;
+    private static readonly int field_27126_s = global::BetaSharp.Achievements.minColumn * 24 - 112;
+    private static readonly int field_27125_t = global::BetaSharp.Achievements.minRow * 24 - 112;
+    private static readonly int field_27124_u = global::BetaSharp.Achievements.maxColumn * 24 - 77;
+    private static readonly int field_27123_v = global::BetaSharp.Achievements.maxRow * 24 - 77;
     protected int field_27121_a = 256;
     protected int field_27119_i = 202;
     protected int field_27118_j;
@@ -34,8 +34,8 @@ public class GuiAchievements : GuiScreen
         this.statFileWriter = statFileWriter;
         short var2 = 141;
         short var3 = 141;
-        field_27116_m = field_27114_o = field_27112_q = BetaSharp.Achievements.OpenInventory.column * 24 - var2 / 2 - 12;
-        field_27115_n = field_27113_p = field_27111_r = BetaSharp.Achievements.OpenInventory.row * 24 - var3 / 2;
+        field_27116_m = field_27114_o = field_27112_q = global::BetaSharp.Achievements.OpenInventory.column * 24 - var2 / 2 - 12;
+        field_27115_n = field_27113_p = field_27111_r = global::BetaSharp.Achievements.OpenInventory.row * 24 - var3 / 2;
     }
 
     public override void InitGui()
@@ -48,8 +48,8 @@ public class GuiAchievements : GuiScreen
     {
         if (var1.Id == 1)
         {
-            mc.displayGuiScreen(null);
-            mc.setIngameFocus();
+            Game.displayGuiScreen(null);
+            Game.setIngameFocus();
         }
 
         base.ActionPerformed(var1);
@@ -57,10 +57,10 @@ public class GuiAchievements : GuiScreen
 
     protected override void KeyTyped(char eventChar, int eventKey)
     {
-        if (eventKey == mc.options.KeyBindInventory.keyCode)
+        if (eventKey == Game.options.KeyBindInventory.keyCode)
         {
-            mc.displayGuiScreen(null);
-            mc.setIngameFocus();
+            Game.displayGuiScreen(null);
+            Game.setIngameFocus();
         }
         else
         {
@@ -152,7 +152,7 @@ public class GuiAchievements : GuiScreen
     {
         int var1 = (Width - field_27121_a) / 2;
         int var2 = (Height - field_27119_i) / 2;
-        FontRenderer.DrawString("Achievements", var1 + 15, var2 + 5, 0x404040);
+        FontRenderer.DrawString("Achievements", var1 + 15, var2 + 5, Color.Gray40);
     }
 
     protected void func_27109_b(int var1, int var2, float var3)
@@ -179,8 +179,8 @@ public class GuiAchievements : GuiScreen
             var5 = field_27123_v - 1;
         }
 
-        TextureHandle var6 = mc.textureManager.GetTextureId("/terrain.png");
-        TextureHandle var7 = mc.textureManager.GetTextureId("/achievement/bg.png");
+        TextureHandle var6 = Game.textureManager.GetTextureId("/terrain.png");
+        TextureHandle var7 = Game.textureManager.GetTextureId("/achievement/bg.png");
         int var8 = (Width - field_27121_a) / 2;
         int var9 = (Height - field_27119_i) / 2;
         int var10 = var8 + 16;
@@ -193,7 +193,7 @@ public class GuiAchievements : GuiScreen
         GLManager.GL.Disable(GLEnum.Lighting);
         GLManager.GL.Enable(GLEnum.RescaleNormal);
         GLManager.GL.Enable(GLEnum.ColorMaterial);
-        mc.textureManager.BindTexture(var6);
+        Game.textureManager.BindTexture(var6);
         int var12 = var4 + 288 >> 4;
         int var13 = var5 + 288 >> 4;
         int var14 = (var4 + 288) % 16;
@@ -257,31 +257,31 @@ public class GuiAchievements : GuiScreen
         int var16;
         int var17;
         int var33;
-        int var38;
-        for (var12 = 0; var12 < BetaSharp.Achievements.AllAchievements.Count; ++var12)
+        for (var12 = 0; var12 < global::BetaSharp.Achievements.AllAchievements.Count; ++var12)
         {
-            Achievement var28 = BetaSharp.Achievements.AllAchievements[var12];
+            Achievement var28 = global::BetaSharp.Achievements.AllAchievements[var12];
             if (var28.parent != null)
             {
                 var14 = var28.column * 24 - var4 + 11 + var10;
                 var15 = var28.row * 24 - var5 + 11 + var11;
                 var16 = var28.parent.column * 24 - var4 + 11 + var10;
                 var17 = var28.parent.row * 24 - var5 + 11 + var11;
-                bool var19 = statFileWriter.HasAchievementUnlocked(var28);
-                bool var20 = statFileWriter.CanUnlockAchievement(var28);
-                var38 = Math.Sin(java.lang.System.currentTimeMillis() % 600L / 600.0D * Math.PI * 2.0D) > 0.6D ? 255 : 130;
-                uint color;
-                if (var19)
+                bool unlocked = statFileWriter.HasAchievementUnlocked(var28);
+                bool canUnlock = statFileWriter.CanUnlockAchievement(var28);
+                Color color;
+                if (unlocked)
                 {
-                    color = 0xFF707070U;
+                    color = Color.Gray70;
                 }
-                else if (var20)
+                else if (canUnlock)
                 {
-                    color = 0xFF + (uint)(var38 << 24);
+                    color = Math.Sin(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 600L / 600.0D * Math.PI * 2.0D) > 0.6D ?
+                        Color.Blue :
+                        Color.BlueAlpha;
                 }
                 else
                 {
-                    color = 0xFF000000U;
+                    color = Color.Black;
                 }
 
                 DrawHorizontalLine(var14, var16, var15, color);
@@ -300,9 +300,9 @@ public class GuiAchievements : GuiScreen
         GLManager.GL.Enable(GLEnum.ColorMaterial);
 
         int var34;
-        for (var14 = 0; var14 < BetaSharp.Achievements.AllAchievements.Count; ++var14)
+        for (var14 = 0; var14 < global::BetaSharp.Achievements.AllAchievements.Count; ++var14)
         {
-            Achievement var30 = BetaSharp.Achievements.AllAchievements[var14];
+            Achievement var30 = global::BetaSharp.Achievements.AllAchievements[var14];
             var16 = var30.column * 24 - var4;
             var17 = var30.row * 24 - var5;
             if (var16 >= -24 && var17 >= -24 && var16 <= 224 && var17 <= 155)
@@ -315,7 +315,7 @@ public class GuiAchievements : GuiScreen
                 }
                 else if (statFileWriter.CanUnlockAchievement(var30))
                 {
-                    var35 = Math.Sin(java.lang.System.currentTimeMillis() % 600L / 600.0D * Math.PI * 2.0D) < 0.6D ? 0.6F : 0.8F;
+                    var35 = Math.Sin(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 600L / 600.0D * Math.PI * 2.0D) < 0.6D ? 0.6F : 0.8F;
                     GLManager.GL.Color4(var35, var35, var35, 1.0F);
                 }
                 else
@@ -324,7 +324,7 @@ public class GuiAchievements : GuiScreen
                     GLManager.GL.Color4(var35, var35, var35, 1.0F);
                 }
 
-                mc.textureManager.BindTexture(var7);
+                Game.textureManager.BindTexture(var7);
                 var33 = var10 + var16;
                 var34 = var11 + var17;
                 if (var30.isChallenge())
@@ -345,7 +345,7 @@ public class GuiAchievements : GuiScreen
 
                 GLManager.GL.Enable(GLEnum.Lighting);
                 GLManager.GL.Enable(GLEnum.CullFace);
-                var29.renderItemIntoGUI(mc.fontRenderer, mc.textureManager, var30.icon, var33 + 3, var34 + 3);
+                var29.renderItemIntoGUI(Game.fontRenderer, Game.textureManager, var30.icon, var33 + 3, var34 + 3);
                 GLManager.GL.Disable(GLEnum.Lighting);
                 if (!statFileWriter.CanUnlockAchievement(var30))
                 {
@@ -363,7 +363,7 @@ public class GuiAchievements : GuiScreen
         GLManager.GL.Disable(GLEnum.DepthTest);
         GLManager.GL.Enable(GLEnum.Blend);
         GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
-        mc.textureManager.BindTexture(var7);
+        Game.textureManager.BindTexture(var7);
         DrawTexturedModalRect(var8, var9, 0, 0, field_27121_a, field_27119_i);
         GLManager.GL.PopMatrix();
         _zLevel = 0.0F;
@@ -386,23 +386,23 @@ public class GuiAchievements : GuiScreen
                     var37 += 12;
                 }
 
-                DrawGradientRect(var17 - 3, var33 - 3, var17 + var34 + 3, var33 + var37 + 3 + 12, 0xC0000000U, 0xC0000000U);
-                FontRenderer.DrawStringWrapped(var32, var17, var33 + 12, var34, 0xFFA0A0A0);
+                DrawGradientRect(var17 - 3, var33 - 3, var17 + var34 + 3, var33 + var37 + 3 + 12, Color.BlackAlphaC0, Color.BlackAlphaC0);
+                FontRenderer.DrawStringWrapped(var32, var17, var33 + 12, var34, Color.GrayA0);
                 if (statFileWriter.HasAchievementUnlocked(var27))
                 {
-                    FontRenderer.DrawStringWithShadow(StatCollector.TranslateToLocal("achievement.taken"), var17, var33 + var37 + 4, 0xFF9090FF);
+                    FontRenderer.DrawStringWithShadow(StatCollector.TranslateToLocal("achievement.taken"), var17, var33 + var37 + 4, Color.AchievementTakenBlue);
                 }
             }
             else
             {
                 var34 = Math.Max(FontRenderer.GetStringWidth(var31), 120);
                 string var39 = StatCollector.TranslateToLocalFormatted("achievement.requires", new object[] { var27.parent.StatName });
-                var38 = FontRenderer.GetStringHeight(var39, var34);
-                DrawGradientRect(var17 - 3, var33 - 3, var17 + var34 + 3, var33 + var38 + 12 + 3, 0xC0000000, 0xC0000000);
-                FontRenderer.DrawStringWrapped(var39, var17, var33 + 12, var34, 0xFF705050);
+                int var38 = FontRenderer.GetStringHeight(var39, var34);
+                DrawGradientRect(var17 - 3, var33 - 3, var17 + var34 + 3, var33 + var38 + 12 + 3, Color.BlackAlphaC0, Color.BlackAlphaC0);
+                FontRenderer.DrawStringWrapped(var39, var17, var33 + 12, var34, Color.AchievementRequiresRed);
             }
 
-            FontRenderer.DrawStringWithShadow(var31, var17, var33, statFileWriter.CanUnlockAchievement(var27) ? var27.isChallenge() ? 0xFFFFFF80 : 0xFFFFFFFF : var27.isChallenge() ? 0xFF808040 : 0xFF808080);
+            FontRenderer.DrawStringWithShadow(var31, var17, var33, statFileWriter.CanUnlockAchievement(var27) ? var27.isChallenge() ? Color.AchievementChallengeYellow : Color.White : var27.isChallenge() ? Color.AchievementChallengeLockedYellow : Color.Gray80);
         }
 
         GLManager.GL.Enable(GLEnum.DepthTest);
