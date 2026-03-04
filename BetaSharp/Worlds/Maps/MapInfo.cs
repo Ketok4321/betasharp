@@ -1,6 +1,6 @@
 using BetaSharp.Entities;
 
-namespace BetaSharp;
+namespace BetaSharp.Worlds.Maps;
 
 internal class MapInfo
 {

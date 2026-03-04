@@ -1,4 +1,4 @@
-namespace BetaSharp;
+namespace BetaSharp.Worlds.Maps;
 
 public class MapCoord
 {

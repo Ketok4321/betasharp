@@ -1,9 +1,8 @@
 using BetaSharp.Entities;
 using BetaSharp.Items;
 using BetaSharp.NBT;
-using BetaSharp.Worlds;
 
-namespace BetaSharp;
+namespace BetaSharp.Worlds.Maps;
 
 public class MapState(string id) : PersistentState(id)
 {

@@ -8,6 +8,7 @@ using BetaSharp.Client.Rendering.Entities;
 using BetaSharp.Entities;
 using BetaSharp.Items;
 using BetaSharp.Util.Maths;
+using BetaSharp.Worlds.Maps;
 
 namespace BetaSharp.Client.Rendering.Items;
 
