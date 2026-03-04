@@ -2,31 +2,27 @@ using BetaSharp.Entities;
 
 namespace BetaSharp.Worlds.Maps;
 
-internal class MapInfo
+internal class MapUpdateTracker
 {
     public readonly EntityPlayer Player;
-    public int[] StartZ;
-    public int[] EndZ;
+    private readonly MapState _mapState;
+
+    public readonly int[] StartZ;
+    public readonly int[] EndZ;
     private int _nextDirtyPixel;
     private int _colorsUpdateInterval;
-    private readonly MapState _mapDataObj;
     private byte[]? _iconsData;
 
-    public MapInfo(MapState state, EntityPlayer player)
+    public MapUpdateTracker(MapState state, EntityPlayer player)
     {
-        _mapDataObj = state;
+        _mapState = state;
         StartZ = new int[128];
         EndZ = new int[128];
         _nextDirtyPixel = 0;
         _colorsUpdateInterval = 0;
         Player = player;
 
-        for (int i = 0; i < StartZ.Length; ++i)
-        {
-            StartZ[i] = 0;
-            EndZ[i] = 127;
-        }
-
+        Array.Fill(EndZ, 127);
     }
 
     public byte[]? getUpdateData()
@@ -34,12 +30,12 @@ internal class MapInfo
         if (--_colorsUpdateInterval < 0)
         {
             _colorsUpdateInterval = 4;
-            byte[] data = new byte[_mapDataObj.Icons.Count * 3 + 1];
+            byte[] data = new byte[_mapState.Icons.Count * 3 + 1];
             data[0] = 1;
 
-            for (int iconIndex = 0; iconIndex < _mapDataObj.Icons.Count; iconIndex++)
+            for (int iconIndex = 0; iconIndex < _mapState.Icons.Count; iconIndex++)
             {
-                MapIcon icon = _mapDataObj.Icons[iconIndex];
+                MapIcon icon = _mapState.Icons[iconIndex];
                 data[iconIndex * 3 + 1] = (byte)(icon.Type + (icon.Rotation & 15) * 16);
                 data[iconIndex * 3 + 2] = icon.X;
                 data[iconIndex * 3 + 3] = icon.Z;
@@ -84,7 +80,7 @@ internal class MapInfo
 
                 for (int pixelOffset = 0; pixelOffset < packetData.Length - 3; pixelOffset++)
                 {
-                    packetData[pixelOffset + 3] = _mapDataObj.Colors[(pixelOffset + startZCoord) * 128 + dirtyPixel];
+                    packetData[pixelOffset + 3] = _mapState.Colors[(pixelOffset + startZCoord) * 128 + dirtyPixel];
                 }
 
                 EndZ[dirtyPixel] = -1;

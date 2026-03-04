@@ -6,7 +6,7 @@ namespace BetaSharp.Worlds.Maps;
 
 public class MapState(string id) : PersistentState(id)
 {
-    private readonly Dictionary<EntityPlayer, MapInfo> _updateTrackers = new();
+    private readonly Dictionary<EntityPlayer, MapUpdateTracker> _updateTrackers = new();
     public readonly List<MapIcon> Icons = [];
     public int CenterX;
     public int CenterZ;
@@ -79,12 +79,12 @@ public class MapState(string id) : PersistentState(id)
     {
         if (!_updateTrackers.ContainsKey(viewer))
         {
-            _updateTrackers[viewer] = new MapInfo(this, viewer);
+            _updateTrackers[viewer] = new MapUpdateTracker(this, viewer);
         }
 
         Icons.Clear();
 
-        foreach (MapInfo mapInfo in _updateTrackers.Values.ToList())
+        foreach (MapUpdateTracker mapInfo in _updateTrackers.Values.ToList())
         {
             if (!mapInfo.Player.dead && mapInfo.Player.inventory.contains(mapItem))
             {
@@ -121,7 +121,7 @@ public class MapState(string id) : PersistentState(id)
 
     public byte[]? getPlayerMarkerPacket(EntityPlayer player)
     {
-        if (_updateTrackers.TryGetValue(player, out MapInfo? mapInfo))
+        if (_updateTrackers.TryGetValue(player, out MapUpdateTracker? mapInfo))
         {
             return mapInfo.getUpdateData();
         }
@@ -133,7 +133,7 @@ public class MapState(string id) : PersistentState(id)
     {
         base.markDirty();
 
-        foreach (MapInfo mapInfo in _updateTrackers.Values)
+        foreach (MapUpdateTracker mapInfo in _updateTrackers.Values)
         {
             if (mapInfo.StartZ[xColumn] < 0 || mapInfo.StartZ[xColumn] > minZ)
             {
