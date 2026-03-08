@@ -68,7 +68,7 @@ public sealed class DataSynchronizer
                 stream.WriteFloat(f);
                 break;
             case SyncedProperty<string>(var str):
-                stream.WriteString(str);
+                stream.WriteLongString(str);
                 break;
             case SyncedProperty<ItemStack>(var item):
                 stream.WriteShort((short)item.getItem().id);
@@ -119,7 +119,7 @@ public sealed class DataSynchronizer
                 ((SyncedProperty<float>)prop).Value = stream.ReadFloat();
                 break;
             case 4:
-                ((SyncedProperty<string>)prop).Value = stream.ReadString();
+                ((SyncedProperty<string>)prop).Value = stream.ReadLongString();
                 break;
             case 5:
                 ((SyncedProperty<ItemStack>)prop).Value = new ItemStack(stream.ReadShort(), (sbyte)stream.ReadByte(), stream.ReadShort());
