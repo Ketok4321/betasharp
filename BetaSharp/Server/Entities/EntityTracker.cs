@@ -1,8 +1,5 @@
 ﻿using BetaSharp.Entities;
 using BetaSharp.Network.Packets;
-using BetaSharp.Util;
-using java.lang;
-using java.util;
 
 namespace BetaSharp.Server.Entities;
 
@@ -86,7 +83,7 @@ public class EntityTracker
         }
         else if (entity is EntityPainting)
         {
-            startTracking(entity, 160, Integer.MAX_VALUE, false);
+            startTracking(entity, 160, int.MaxValue, false);
         }
     }
 
@@ -104,7 +101,7 @@ public class EntityTracker
 
         if (entriesById.ContainsKey(entity.id))
         {
-            throw new IllegalStateException("Entity is already tracked!");
+            throw new InvalidOperationException("Entity is already tracked!");
         }
         else
         {
@@ -136,26 +133,24 @@ public class EntityTracker
 
     public void tick()
     {
-        ArrayList var1 = new();
+        List<ServerPlayerEntity> players = [];
 
-        foreach (EntityTrackerEntry var3 in entries)
+        foreach (EntityTrackerEntry tracker in entries)
         {
-            var3.notifyNewLocation(world.getWorld(dimensionId).players.Cast<ServerPlayerEntity>());
-            if (var3.newPlayerDataUpdated && var3.currentTrackedEntity is ServerPlayerEntity)
+            tracker.notifyNewLocation(world.getWorld(dimensionId).players.Cast<ServerPlayerEntity>());
+            if (tracker.newPlayerDataUpdated && tracker.currentTrackedEntity is ServerPlayerEntity player)
             {
-                var1.add((ServerPlayerEntity)var3.currentTrackedEntity);
+                players.Add(player);
             }
         }
 
-        for (int var6 = 0; var6 < var1.size(); var6++)
+        foreach (var player in players)
         {
-            ServerPlayerEntity var7 = (ServerPlayerEntity)var1.get(var6);
-
-            foreach (EntityTrackerEntry var5 in entries)
+            foreach (EntityTrackerEntry tracker in entries)
             {
-                if (var5.currentTrackedEntity != var7)
+                if (tracker.currentTrackedEntity != player)
                 {
-                    var5.updateListener(var7);
+                    tracker.updateListener(player);
                 }
             }
         }
