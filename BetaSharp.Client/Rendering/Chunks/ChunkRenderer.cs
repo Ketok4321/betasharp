@@ -440,14 +440,11 @@ public class ChunkRenderer : IChunkVisibilityVisitor
                 info.Pos.Z + SubChunkRenderer.Size
             );
 
-            if (camera.isBoundingBoxInFrustum(aabb))
+            double dist = Vector3D.DistanceSquared(ToDoubleVec(info.Pos), _lastViewPos);
+            if (dist < bestDist && camera.isBoundingBoxInFrustum(aabb))
             {
-                double dist = Vector3D.DistanceSquared(ToDoubleVec(info.Pos), _lastViewPos);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestIndex = i;
-                }
+                bestDist = dist;
+                bestIndex = i;
             }
         }
 
