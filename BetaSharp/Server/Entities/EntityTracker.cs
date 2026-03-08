@@ -20,16 +20,15 @@ public class EntityTracker
 
     public void onEntityAdded(Entity entity)
     {
-        if (entity is ServerPlayerEntity)
+        if (entity is ServerPlayerEntity player)
         {
             startTracking(entity, 512, 2);
-            ServerPlayerEntity var2 = (ServerPlayerEntity)entity;
 
-            foreach (EntityTrackerEntry var4 in entries)
+            foreach (EntityTrackerEntry tracker in entries)
             {
-                if (var4.currentTrackedEntity != var2)
+                if (tracker.currentTrackedEntity != player)
                 {
-                    var4.updateListener(var2);
+                    tracker.updateListener(player);
                 }
             }
         }
@@ -87,12 +86,7 @@ public class EntityTracker
         }
     }
 
-    public void startTracking(Entity entity, int trackedDistance, int tracingFrequency)
-    {
-        startTracking(entity, trackedDistance, tracingFrequency, false);
-    }
-
-    public void startTracking(Entity entity, int trackedDistance, int tracingFrequency, bool alwaysUpdateVelocity)
+    public void startTracking(Entity entity, int trackedDistance, int tracingFrequency, bool alwaysUpdateVelocity = false)
     {
         if (trackedDistance > viewDistance)
         {
