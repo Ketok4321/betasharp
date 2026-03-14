@@ -294,6 +294,8 @@ public class ChunkRenderer : IChunkVisibilityVisitor
                     _renderers[mesh.Pos] = new SubChunkState(mesh.IsLit, renderer);
                     UpdateAdjacency(renderer, true);
                 }
+
+                mesh.Dispose();
             }
         }
     }

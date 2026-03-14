@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using BetaSharp.Blocks;
 using BetaSharp.Client.Rendering.Blocks;
 using BetaSharp.Client.Rendering.Core;
@@ -8,7 +9,7 @@ using Silk.NET.Maths;
 
 namespace BetaSharp.Client.Rendering.Chunks;
 
-internal struct MeshBuildResult
+internal struct MeshBuildResult : IDisposable
 {
     public PooledList<ChunkVertex> Solid;
     public PooledList<ChunkVertex> Translucent;
@@ -26,7 +27,7 @@ internal struct MeshBuildResult
 
 internal class ChunkMeshGenerator : IDisposable
 {
-    private readonly PooledQueue<MeshBuildResult> results = new();
+    private readonly ConcurrentQueue<MeshBuildResult> _results = new();
     private readonly ObjectPool<PooledList<ChunkVertex>> listPool =
         new(() => new PooledList<ChunkVertex>(), 64);
 
@@ -40,17 +41,7 @@ internal class ChunkMeshGenerator : IDisposable
 
     public bool TryDequeueMesh(out MeshBuildResult result)
     {
-        lock (results)
-        {
-            if (results.IsEmpty)
-            {
-                result = default;
-                return false;
-            }
-
-            result = results.Dequeue();
-            return true;
-        }
+        return _results.TryDequeue(out result);
     }
 
     public ushort MaxConcurrentTasks
@@ -86,8 +77,7 @@ internal class ChunkMeshGenerator : IDisposable
             try
             {
                 MeshBuildResult mesh = GenerateMesh(pos, version, cache);
-                lock (results)
-                    results.Enqueue(mesh);
+                _results.Enqueue(mesh);
             }
             finally
             {
@@ -167,7 +157,6 @@ internal class ChunkMeshGenerator : IDisposable
 
     public void Dispose()
     {
-        results.Dispose();
         listPool.Dispose();
     }
 }
