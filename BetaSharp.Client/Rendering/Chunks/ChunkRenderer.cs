@@ -14,27 +14,6 @@ public class ChunkRenderer : IChunkVisibilityVisitor
 {
     private readonly ILogger<ChunkRenderer> _logger = Log.Instance.For<ChunkRenderer>();
 
-    static ChunkRenderer()
-    {
-        var offsets = new List<Vector3D<int>>();
-
-        for (int x = -MaxRenderDistance; x <= MaxRenderDistance; x++)
-        {
-            for (int y = -8; y <= 8; y++)
-            {
-                for (int z = -MaxRenderDistance; z <= MaxRenderDistance; z++)
-                {
-                    offsets.Add(new Vector3D<int>(x, y, z));
-                }
-            }
-        }
-
-        offsets.Sort((a, b) =>
-            (a.X * a.X + a.Y * a.Y + a.Z * a.Z).CompareTo(b.X * b.X + b.Y * b.Y + b.Z * b.Z));
-
-        s_spiralOffsets = [.. offsets];
-    }
-
     private class SubChunkState(bool isLit, SubChunkRenderer renderer)
     {
         public bool IsLit { get; set; } = isLit;
@@ -53,8 +32,12 @@ public class ChunkRenderer : IChunkVisibilityVisitor
         }
     }
 
-    private static readonly Vector3D<int>[] s_spiralOffsets;
-    private const int MaxRenderDistance = 32 + 1;
+    public int FogMode { get; set; }
+    public float FogDensity { get; set; }
+    public float FogStart { get; set; }
+    public float FogEnd { get; set; }
+    public Vector4D<float> FogColor { get; set; }
+
     private readonly Dictionary<Vector3D<int>, SubChunkState> _renderers = [];
     private readonly List<SubChunkRenderer> _translucentRenderers = [];
     private readonly List<SubChunkRenderer> _renderersToRemove = [];
@@ -66,14 +49,8 @@ public class ChunkRenderer : IChunkVisibilityVisitor
     private readonly Core.Shader _chunkShader;
     private int _lastRenderDistance;
     private Vector3D<double> _lastViewPos;
-    private int _currentIndex;
     private Matrix4X4<float> _modelView;
     private Matrix4X4<float> _projection;
-    private int _fogMode;
-    private float _fogDensity;
-    private float _fogStart;
-    private float _fogEnd;
-    private Vector4D<float> _fogColor;
     private readonly ChunkOcclusionCuller _occlusionCuller = new();
     private readonly List<SubChunkRenderer> _visibleRenderers = [];
     private readonly List<SubChunkRenderer> _occludedRenderersBuffer = [];
@@ -105,11 +82,11 @@ public class ChunkRenderer : IChunkVisibilityVisitor
 
         _chunkShader.Bind();
         _chunkShader.SetUniform1("textureSampler", 0);
-        _chunkShader.SetUniform1("fogMode", _fogMode);
-        _chunkShader.SetUniform1("fogDensity", _fogDensity);
-        _chunkShader.SetUniform1("fogStart", _fogStart);
-        _chunkShader.SetUniform1("fogEnd", _fogEnd);
-        _chunkShader.SetUniform4("fogColor", _fogColor);
+        _chunkShader.SetUniform1("fogMode", FogMode);
+        _chunkShader.SetUniform1("fogDensity", FogDensity);
+        _chunkShader.SetUniform1("fogStart", FogStart);
+        _chunkShader.SetUniform1("fogEnd", FogEnd);
+        _chunkShader.SetUniform4("fogColor", FogColor);
 
         int wrappedTicks = (int)(renderParams.Ticks % 24000);
         _chunkShader.SetUniform1("time", (wrappedTicks + renderParams.PartialTicks) / 20.0f);
@@ -249,31 +226,6 @@ public class ChunkRenderer : IChunkVisibilityVisitor
 
         GLManager.GL.UseProgram(0);
         Core.VertexArray.Unbind();
-    }
-
-    public void SetFogMode(int mode)
-    {
-        _fogMode = mode;
-    }
-
-    public void SetFogDensity(float density)
-    {
-        _fogDensity = density;
-    }
-
-    public void SetFogStart(float start)
-    {
-        _fogStart = start;
-    }
-
-    public void SetFogEnd(float end)
-    {
-        _fogEnd = end;
-    }
-
-    public void SetFogColor(float r, float g, float b, float a)
-    {
-        _fogColor = new(r, g, b, a);
     }
 
     public void RenderTransparent(ChunkRenderParams renderParams)
@@ -461,74 +413,11 @@ public class ChunkRenderer : IChunkVisibilityVisitor
 
     public void Tick(Vector3D<double> viewPos)
     {
-        Profiler.Start("WorldRenderer.Tick");
+        Profiler.Start("ChunkRenderer.Tick");
 
         _lastViewPos = viewPos;
 
-        Vector3D<int> currentChunk = new(
-            (int)Math.Floor(viewPos.X / SubChunkRenderer.Size),
-            (int)Math.Floor(viewPos.Y / SubChunkRenderer.Size),
-            (int)Math.Floor(viewPos.Z / SubChunkRenderer.Size)
-        );
-
-        int radiusSq = _lastRenderDistance * _lastRenderDistance;
-        int enqueuedCount = 0;
-        bool priorityPassClean = true;
-
-        //TODO: MAKE THESE CONFIGURABLE
-        const int MAX_CHUNKS_PER_FRAME = 32;
-        const int PRIORITY_PASS_LIMIT = 1024;
-        const int BACKGROUND_PASS_LIMIT = 2048;
-
-        for (int i = 0; i < PRIORITY_PASS_LIMIT && i < s_spiralOffsets.Length; i++)
-        {
-            Vector3D<int> offset = s_spiralOffsets[i];
-            int distSq = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z;
-
-            if (distSq > radiusSq)
-                break;
-
-            Vector3D<int> chunkPos = (currentChunk + offset) * SubChunkRenderer.Size;
-
-            if (chunkPos.Y < 0 || chunkPos.Y >= 128)
-                continue;
-
-            if (_renderers.ContainsKey(chunkPos) || _chunkVersions.ContainsKey(chunkPos))
-                continue;
-
-            MarkDirty(chunkPos);
-            enqueuedCount++;
-            priorityPassClean = false;
-
-            if (enqueuedCount >= MAX_CHUNKS_PER_FRAME)
-                break;
-        }
-
-        if (priorityPassClean && enqueuedCount < MAX_CHUNKS_PER_FRAME)
-        {
-            for (int i = 0; i < BACKGROUND_PASS_LIMIT; i++)
-            {
-                Vector3D<int> offset = s_spiralOffsets[_currentIndex];
-                int distSq = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z;
-
-                if (distSq <= radiusSq)
-                {
-                    Vector3D<int> chunkPos = (currentChunk + offset) * SubChunkRenderer.Size;
-                    if (!_renderers.ContainsKey(chunkPos) && !_chunkVersions.ContainsKey(chunkPos))
-                    {
-                        MarkDirty(chunkPos);
-                        enqueuedCount++;
-                    }
-                }
-
-                _currentIndex = (_currentIndex + 1) % s_spiralOffsets.Length;
-
-                if (enqueuedCount >= MAX_CHUNKS_PER_FRAME)
-                    break;
-            }
-        }
-
-        Profiler.Start("WorldRenderer.Tick.RemoveVersions");
+        Profiler.Start("ChunkRenderer.Tick.RemoveVersions");
         foreach (KeyValuePair<Vector3D<int>, ChunkMeshVersion> version in _chunkVersions)
         {
             if (!IsChunkInRenderDistance(version.Key, _lastViewPos))
@@ -544,9 +433,9 @@ public class ChunkRenderer : IChunkVisibilityVisitor
         }
 
         _chunkVersionsToRemove.Clear();
-        Profiler.Stop("WorldRenderer.Tick.RemoveVersions");
+        Profiler.Stop("ChunkRenderer.Tick.RemoveVersions");
 
-        Profiler.Stop("WorldRenderer.Tick");
+        Profiler.Stop("ChunkRenderer.Tick");
     }
 
     public void MarkDirty(Vector3D<int> chunkPos)
