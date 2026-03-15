@@ -61,4 +61,9 @@ internal class FixedBiomeSource : BiomeSource
 
         return biomes;
     }
+
+    public override BiomeSource Clone()
+    {
+        return new FixedBiomeSource(_biome, _temperature, _downfall);
+    }
 }
