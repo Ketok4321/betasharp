@@ -5,6 +5,7 @@ using BetaSharp.Client.Rendering.Core;
 using BetaSharp.Util;
 using BetaSharp.Util.Maths;
 using BetaSharp.Worlds;
+using Microsoft.Extensions.Logging;
 using Silk.NET.Maths;
 
 namespace BetaSharp.Client.Rendering.Chunks;
@@ -27,6 +28,8 @@ internal struct MeshBuildResult : IDisposable
 
 internal class ChunkMeshGenerator : IDisposable
 {
+    private readonly ILogger<ChunkMeshGenerator> _logger = Log.Instance.For<ChunkMeshGenerator>();
+
     private readonly ConcurrentQueue<MeshBuildResult> _results = new();
     private readonly ObjectPool<PooledList<ChunkVertex>> listPool =
         new(() => new PooledList<ChunkVertex>(), 64);
@@ -78,6 +81,10 @@ internal class ChunkMeshGenerator : IDisposable
             {
                 MeshBuildResult mesh = GenerateMesh(pos, version, cache);
                 _results.Enqueue(mesh);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating chunk mesh at {Pos}", pos);
             }
             finally
             {
