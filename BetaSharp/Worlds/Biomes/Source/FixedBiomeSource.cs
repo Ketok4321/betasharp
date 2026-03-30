@@ -16,11 +16,19 @@ internal class FixedBiomeSource : BiomeSource
         _downfall = downfall;
     }
 
+    public override Biome GetBiome(ChunkPos chunkPos) => _biome;
+
     public override Biome GetBiome(int x, int y) => _biome;
 
-    public override double GetSkyTemperature(int x, int y) => _temperature;
+    public override double GetTemperature(int x, int y) => _temperature;
 
-    public override double[] GetWeirdTemperatures(double[] map, int x, int y, int width, int depth)
+    public override Biome[] GetBiomesInArea(int x, int y, int width, int depth)
+    {
+        Biomes = GetBiomesInArea(Biomes, x, y, width, depth);
+        return Biomes;
+    }
+
+    public override double[] GetTemperatures(double[] map, int x, int y, int width, int depth)
     {
         int size = width * depth;
         if (map == null || map.Length < size)
@@ -40,16 +48,21 @@ internal class FixedBiomeSource : BiomeSource
             biomes = new Biome[size];
         }
 
-        if (TemperatureMap.Value == null || TemperatureMap.Value.Length < size)
+        if (TemperatureMap == null || TemperatureMap.Length < size)
         {
-            TemperatureMap.Value = new double[size];
-            DownfallMap.Value = new double[size];
+            TemperatureMap = new double[size];
+            DownfallMap = new double[size];
         }
 
         Array.Fill(biomes, _biome);
-        Array.Fill(DownfallMap.Value, _downfall);
-        Array.Fill(TemperatureMap.Value, _temperature);
+        Array.Fill(DownfallMap, _downfall);
+        Array.Fill(TemperatureMap, _temperature);
 
         return biomes;
+    }
+
+    public override BiomeSource Clone()
+    {
+        return new FixedBiomeSource(_biome, _temperature, _downfall);
     }
 }

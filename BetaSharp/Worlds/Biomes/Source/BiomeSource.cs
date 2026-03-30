@@ -3,15 +3,15 @@ using BetaSharp.Util.Maths.Noise;
 
 namespace BetaSharp.Worlds.Biomes.Source;
 
-public class BiomeSource : IDisposable
+public class BiomeSource
 {
     private readonly OctaveSimplexNoiseSampler _temperatureSampler;
     private readonly OctaveSimplexNoiseSampler _downfallSampler;
     private readonly OctaveSimplexNoiseSampler _weirdnessSampler;
-    public readonly ThreadLocal<double[]> TemperatureMap = new(() => new double[256]);
-    public readonly ThreadLocal<double[]> DownfallMap = new(() => new double[256]);
-    public readonly ThreadLocal<double[]> WeirdnessMap = new(() => new double[256]);
-    public readonly ThreadLocal<Biome[]> Biomes = new(() => new Biome[256]);
+    public double[] TemperatureMap;
+    public double[] DownfallMap;
+    public double[] WeirdnessMap;
+    public Biome[] Biomes;
 
     protected BiomeSource()
     {
@@ -31,7 +31,7 @@ public class BiomeSource : IDisposable
         _weirdnessSampler = other._weirdnessSampler;
     }
 
-    public Biome GetBiome(ChunkPos chunkPos)
+    public virtual Biome GetBiome(ChunkPos chunkPos)
     {
         return GetBiome(chunkPos.X << 4, chunkPos.Z << 4);
     }
@@ -41,19 +41,19 @@ public class BiomeSource : IDisposable
         return GetBiomesInArea(x, z, 1, 1)[0];
     }
 
-    public virtual double GetSkyTemperature(int x, int z) // frequency scaler is different from normal temperature
+    public virtual double GetTemperature(int x, int z)
     {
-        TemperatureMap.Value = _temperatureSampler.sample(TemperatureMap.Value, x, z, 1, 1, (double)0.025F, (double)0.025F, 0.5D);
-        return TemperatureMap.Value[0];
+        TemperatureMap = _temperatureSampler.sample(TemperatureMap, x, z, 1, 1, (double)0.025F, (double)0.025F, 0.5D);
+        return TemperatureMap[0];
     }
 
-    public Biome[] GetBiomesInArea(int x, int z, int width, int depth)
+    public virtual Biome[] GetBiomesInArea(int x, int z, int width, int depth)
     {
-        Biomes.Value = GetBiomesInArea(Biomes.Value, x, z, width, depth);
-        return Biomes.Value;
+        Biomes = GetBiomesInArea(Biomes, x, z, width, depth);
+        return Biomes;
     }
 
-    public virtual double[] GetWeirdTemperatures(double[] map, int x, int z, int width, int depth) // incorporates some weirdness into the result
+    public virtual double[] GetTemperatures(double[] map, int x, int z, int width, int depth)
     {
         int size = width * depth;
         if (map == null || map.Length < size)
@@ -62,14 +62,14 @@ public class BiomeSource : IDisposable
         }
 
         map = _temperatureSampler.sample(map, x, z, width, depth, (double)0.025F, (double)0.025F, 0.25D);
-        WeirdnessMap.Value = _weirdnessSampler.sample(WeirdnessMap.Value, x, z, width, depth, 0.25D, 0.25D, 10 / 17d);
+        WeirdnessMap = _weirdnessSampler.sample(WeirdnessMap, x, z, width, depth, 0.25D, 0.25D, 10 / 17d);
         int index = 0;
 
         for (int i = 0; i < width; ++i)
         {
             for (int j = 0; j < depth; ++j)
             {
-                double weirdness = WeirdnessMap.Value[index] * 1.1D + 0.5D;
+                double weirdness = WeirdnessMap[index] * 1.1D + 0.5D;
                 double weight = 0.01D;
                 double oneMinusWeight = 1.0D - weight;
                 double temperature = (map[index] * 0.15D + 0.7D) * oneMinusWeight + weirdness * weight;
@@ -100,22 +100,22 @@ public class BiomeSource : IDisposable
             biomes = new Biome[size];
         }
 
-        TemperatureMap.Value = _temperatureSampler.sample(TemperatureMap.Value, x, z, width, width, (double)0.025F, (double)0.025F, 0.25D);
-        DownfallMap.Value = _downfallSampler.sample(DownfallMap.Value, x, z, width, width, (double)0.05F, (double)0.05F, 1.0D / 3.0D);
-        WeirdnessMap.Value = _weirdnessSampler.sample(WeirdnessMap.Value, x, z, width, width, 0.25D, 0.25D, 0.5882352941176471D);
+        TemperatureMap = _temperatureSampler.sample(TemperatureMap, x, z, width, width, (double)0.025F, (double)0.025F, 0.25D);
+        DownfallMap = _downfallSampler.sample(DownfallMap, x, z, width, width, (double)0.05F, (double)0.05F, 1.0D / 3.0D);
+        WeirdnessMap = _weirdnessSampler.sample(WeirdnessMap, x, z, width, width, 0.25D, 0.25D, 0.5882352941176471D);
         int index = 0;
 
         for (int i = 0; i < width; ++i)
         {
             for (int j = 0; j < depth; ++j)
             {
-                double weirdness = WeirdnessMap.Value[index] * 1.1D + 0.5D;
+                double weirdness = WeirdnessMap[index] * 1.1D + 0.5D;
                 double weight = 0.01D;
                 double oneMinusWeight = 1.0D - weight;
-                double temperature = (TemperatureMap.Value[index] * 0.15D + 0.7D) * oneMinusWeight + weirdness * weight;
+                double temperature = (TemperatureMap[index] * 0.15D + 0.7D) * oneMinusWeight + weirdness * weight;
                 weight = 0.002D;
                 oneMinusWeight = 1.0D - weight;
-                double downfall = (DownfallMap.Value[index] * 0.15D + 0.5D) * oneMinusWeight + weirdness * weight;
+                double downfall = (DownfallMap[index] * 0.15D + 0.5D) * oneMinusWeight + weirdness * weight;
                 temperature = 1.0D - (1.0D - temperature) * (1.0D - temperature);
                 if (temperature < 0.0D)
                 {
@@ -137,8 +137,8 @@ public class BiomeSource : IDisposable
                     downfall = 1.0D;
                 }
 
-                TemperatureMap.Value[index] = temperature;
-                DownfallMap.Value[index] = downfall;
+                TemperatureMap[index] = temperature;
+                DownfallMap[index] = downfall;
                 biomes[index++] = Biome.GetBiome(temperature, downfall);
             }
         }
@@ -146,16 +146,8 @@ public class BiomeSource : IDisposable
         return biomes;
     }
 
-    public void Dispose()
+    public virtual BiomeSource Clone() // trick for thread safety, but ideally you would just not share buffers in such a retarded way
     {
-        TemperatureMap.Dispose();
-        DownfallMap.Dispose();
-        WeirdnessMap.Dispose();
-        Biomes.Dispose();
-    }
-
-    ~BiomeSource()
-    {
-        Dispose();
+        return new BiomeSource(this);
     }
 }
