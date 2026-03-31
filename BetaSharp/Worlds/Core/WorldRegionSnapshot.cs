@@ -212,23 +212,6 @@ public class WorldRegionSnapshot : IBlockReader, ILightProvider, IDisposable
         return lightValue;
     }
 
-    public BiomeSource getBiomeSource()
-    {
-        return _biomeSource;
-    }
-
-    public bool shouldSuffocate(int x, int y, int z)
-    {
-        Block block = Block.Blocks[GetBlockId(x, y, z)];
-        return block != null && block.material.BlocksMovement && block.isFullCube();
-    }
-
-    public bool isOpaque(int x, int y, int z)
-    {
-        Block block = Block.Blocks[GetBlockId(x, y, z)];
-        return block != null && block.isOpaque();
-    }
-
     public bool getIsLit()
     {
         return _isLit;
