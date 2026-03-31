@@ -724,35 +724,35 @@ public class WorldRenderer : IWorldAccess
         var2.draw();
     }
 
-    public void MarkBlocksDirty(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
+    public void MarkBlocksDirty(int var1, int var2, int var3, int var4, int var5, int var6)
     {
-        int xStart = (int)Math.Floor((double)minX / SubChunkRenderer.Size);
-        int yStart = (int)Math.Floor((double)minY / SubChunkRenderer.Size);
-        int zStart = (int)Math.Floor((double)minZ / SubChunkRenderer.Size);
-        int xEnd = (int)Math.Ceiling((double)maxX / SubChunkRenderer.Size);
-        int yEnd = (int)Math.Ceiling((double)maxY / SubChunkRenderer.Size);
-        int zEnd = (int)Math.Ceiling((double)maxZ / SubChunkRenderer.Size);
+        int var7 = MathHelper.FloorDiv(var1, SubChunkRenderer.Size);
+        int var8 = MathHelper.FloorDiv(var2, SubChunkRenderer.Size);
+        int var9 = MathHelper.FloorDiv(var3, SubChunkRenderer.Size);
+        int var10 = MathHelper.FloorDiv(var4, SubChunkRenderer.Size);
+        int var11 = MathHelper.FloorDiv(var5, SubChunkRenderer.Size);
+        int var12 = MathHelper.FloorDiv(var6, SubChunkRenderer.Size);
 
-        for (int x = xStart; x <= xEnd; x++)
+        for (int var13 = var7; var13 <= var10; ++var13)
         {
-            for (int y = yStart; y <= yEnd; y++)
+            for (int var15 = var8; var15 <= var11; ++var15)
             {
-                for (int z = zStart; z <= zEnd; z++)
+                for (int var17 = var9; var17 <= var12; ++var17)
                 {
-                    chunkRenderer.MarkDirty(new Vector3D<int>(x, y, z) * SubChunkRenderer.Size);
+                    chunkRenderer.MarkDirty(new Vector3D<int>(var13, var15, var17) * SubChunkRenderer.Size);
                 }
             }
         }
     }
 
-    public void blockUpdate(int x, int y, int z)
+    public void blockUpdate(int var1, int var2, int var3)
     {
-        MarkBlocksDirty(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1);
+        MarkBlocksDirty(var1 - 1, var2 - 1, var3 - 1, var1 + 1, var2 + 1, var3 + 1);
     }
 
-    public void setBlocksDirty(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
+    public void setBlocksDirty(int var1, int var2, int var3, int var4, int var5, int var6)
     {
-        MarkBlocksDirty(minX - 1, minY - 1, minZ - 1, maxX + 1, maxY + 1, maxZ + 1);
+        MarkBlocksDirty(var1 - 1, var2 - 1, var3 - 1, var4 + 1, var5 + 1, var6 + 1);
     }
 
     public void playStreaming(string var1, int var2, int var3, int var4)
