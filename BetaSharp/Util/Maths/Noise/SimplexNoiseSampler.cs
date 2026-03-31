@@ -6,7 +6,6 @@ internal class SimplexNoiseSampler
     private readonly int[] _permutations;
     private readonly double _xCoord;
     private readonly double _yCoord;
-    private readonly double _zCoord;
     private static readonly double F2 = 0.5D * (Math.Sqrt(3.0D) - 1.0D);
     private static readonly double G2 = (3.0D - Math.Sqrt(3.0D)) / 6.0D;
 
@@ -19,7 +18,7 @@ internal class SimplexNoiseSampler
         _permutations = new int[512];
         _xCoord = rand.NextDouble() * 256.0D;
         _yCoord = rand.NextDouble() * 256.0D;
-        _zCoord = rand.NextDouble() * 256.0D;
+        _ = rand.NextDouble();
 
         // Fill perm with values from 0 to 255 in random order, duplicating the first 256 values to the end of the array
         for (int i = 0; i < 256; i++)
