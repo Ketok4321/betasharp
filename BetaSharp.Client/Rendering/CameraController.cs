@@ -26,10 +26,12 @@ public class CameraController
     private float _prevCameraRoll;
     private readonly float _cameraRollAmount = 0.0F;
     private float _prevCameraRollAmount;
-
-    public double CameraZoom { get; } = 1.0D;
+    private bool _isZoomHeld;
+    private float _zoomScale = 2.0F;
+    public double CameraZoom { get; private set; } = 1.0D;
     public double CameraYaw { get; } = 0.0D;
     public double CameraPitch { get; } = 0.0D;
+    public bool IsZoomActive => _isZoomHeld;
 
     public CameraController(BetaSharp game)
     {
@@ -46,18 +48,23 @@ public class CameraController
         _prevCameraRoll = _cameraRoll;
         _prevCameraRollAmount = _cameraRollAmount;
 
-        _game.camera ??= _game.player;
-
-        float luminance = _game.world.getLuminance(MathHelper.Floor(_game.camera.x), MathHelper.Floor(_game.camera.y), MathHelper.Floor(_game.camera.z));
-        float renderDistFactor = System.Math.Clamp((_game.options.renderDistance - 4.0F) / 28.0F, 0.0F, 1.0F);
+        float luminance = _game.World.GetLuminance(MathHelper.Floor(_game.Camera.x), MathHelper.Floor(_game.Camera.y), MathHelper.Floor(_game.Camera.z));
+        float renderDistFactor = System.Math.Clamp((_game.Options.renderDistance - 4.0F) / 28.0F, 0.0F, 1.0F);
         float targetBob = luminance * (1.0F - renderDistFactor) + renderDistFactor;
         ViewBob += (targetBob - ViewBob) * 0.1F;
     }
 
+    public void SetZoomState(bool isHeld, float zoomScale)
+    {
+        _isZoomHeld = isHeld;
+        _zoomScale = System.Math.Clamp(zoomScale, 1.25F, 20.0F);
+        CameraZoom = 1.0D;
+    }
+
     public float GetFov(float tickDelta, bool isHand = false)
     {
-        EntityLiving cameraEntity = _game.camera;
-        float fov = isHand ? 70.0F : (30.0F + _game.options.Fov * 90.0F);
+        EntityLiving cameraEntity = _game.Camera;
+        float fov = isHand ? 70.0F : (30.0F + _game.Options.Fov * 90.0F);
 
         if (cameraEntity.isInFluid(Material.Water))
         {
@@ -70,12 +77,19 @@ public class CameraController
             fov /= (1.0F - 500.0F / (deathTimeF + 500.0F)) * 2.0F + 1.0F;
         }
 
+        if (_isZoomHeld && !isHand)
+        {
+            float zoomProgress = 1.0F / _zoomScale;
+            float easedZoomProgress = (float)System.Math.Pow(zoomProgress, 2.0D);
+            fov = 1.0F + (fov - 1.0F) * easedZoomProgress;
+        }
+
         return fov + _prevCameraRoll + (_cameraRoll - _prevCameraRoll) * tickDelta;
     }
 
     public void ApplyDamageTiltEffect(float tickDelta)
     {
-        EntityLiving cameraEntity = _game.camera;
+        EntityLiving cameraEntity = _game.Camera;
         float hurtTimeF = cameraEntity.hurtTime - tickDelta;
 
         if (cameraEntity.health <= 0)
@@ -97,7 +111,7 @@ public class CameraController
 
     public void ApplyViewBobbing(float tickDelta)
     {
-        if (_game.camera is EntityPlayer player)
+        if (_game.Camera is EntityPlayer player)
         {
             float speedDelta = player.horizontalSpeed - player.prevHorizontalSpeed;
             float speed = -(player.horizontalSpeed + speedDelta * tickDelta);
@@ -113,7 +127,7 @@ public class CameraController
 
     public void ApplyCameraTransform(float tickDelta)
     {
-        EntityLiving cameraEntity = _game.camera;
+        EntityLiving cameraEntity = _game.Camera;
         float eyeHeightOffset = cameraEntity.standingEyeHeight - 1.62F;
         double x = cameraEntity.prevX + (cameraEntity.x - cameraEntity.prevX) * (double)tickDelta;
         double y = cameraEntity.prevY + (cameraEntity.y - cameraEntity.prevY) * (double)tickDelta - (double)eyeHeightOffset;
@@ -125,12 +139,12 @@ public class CameraController
         {
             eyeHeightOffset = (float)((double)eyeHeightOffset + 1.0D);
             GLManager.GL.Translate(0.0F, 0.3F, 0.0F);
-            if (!_game.options.DebugCamera)
+            if (!_game.Options.DebugCamera)
             {
-                int blockId = _game.world.getBlockId(MathHelper.Floor(cameraEntity.x), MathHelper.Floor(cameraEntity.y), MathHelper.Floor(cameraEntity.z));
+                int blockId = _game.World.Reader.GetBlockId(MathHelper.Floor(cameraEntity.x), MathHelper.Floor(cameraEntity.y), MathHelper.Floor(cameraEntity.z));
                 if (blockId == Block.Bed.id)
                 {
-                    int meta = _game.world.getBlockMeta(MathHelper.Floor(cameraEntity.x), MathHelper.Floor(cameraEntity.y), MathHelper.Floor(cameraEntity.z));
+                    int meta = _game.World.Reader.GetBlockMeta(MathHelper.Floor(cameraEntity.x), MathHelper.Floor(cameraEntity.y), MathHelper.Floor(cameraEntity.z));
                     int rotation = meta & 3;
                     GLManager.GL.Rotate(rotation * 90, 0.0F, 1.0F, 0.0F);
                 }
@@ -139,10 +153,10 @@ public class CameraController
                 GLManager.GL.Rotate(cameraEntity.prevPitch + (cameraEntity.pitch - cameraEntity.prevPitch) * tickDelta, -1.0F, 0.0F, 0.0F);
             }
         }
-        else if (_game.options.CameraMode == EnumCameraMode.ThirdPerson || _game.options.CameraMode == EnumCameraMode.FrontThirdPerson)
+        else if (_game.Options.CameraMode == EnumCameraMode.ThirdPerson || _game.Options.CameraMode == EnumCameraMode.FrontThirdPerson)
         {
             double currentDistance;
-            if (_game.options.CameraMode == EnumCameraMode.FrontThirdPerson)
+            if (_game.Options.CameraMode == EnumCameraMode.FrontThirdPerson)
             {
                 currentDistance = _prevFrontThirdPersonDistance + (_frontThirdPersonDistance - _prevFrontThirdPersonDistance) * tickDelta;
             }
@@ -154,7 +168,7 @@ public class CameraController
             float targetPitch;
             float targetYaw;
 
-            if (_game.options.DebugCamera)
+            if (_game.Options.DebugCamera)
             {
                 targetYaw = _prevThirdPersonYaw + (_thirdPersonYaw - _prevThirdPersonYaw) * tickDelta;
                 targetPitch = _prevThirdPersonPitch + (_thirdPersonPitch - _prevThirdPersonPitch) * tickDelta;
@@ -179,16 +193,16 @@ public class CameraController
 
                     HitResult hit = new HitResult(HitResultType.MISS);
 
-                    if (_game.options.CameraMode == EnumCameraMode.FrontThirdPerson)
+                    if (_game.Options.CameraMode == EnumCameraMode.FrontThirdPerson)
                     {
-                        hit = _game.world.raycast(
+                        hit = _game.World.Reader.Raycast(
                             new Vec3D(x + offsetX, y + offsetY, z + offsetZ),
                             new Vec3D(x + vecX + offsetX + offsetZ, y + vecY + offsetY, z + vecZ + offsetZ)
                         );
                     }
                     else
                     {
-                        hit = _game.world.raycast(
+                        hit = _game.World.Reader.Raycast(
                             new Vec3D(x + offsetX, y + offsetY, z + offsetZ),
                             new Vec3D(x - vecX + offsetX + offsetZ, y - vecY + offsetY, z - vecZ + offsetZ)
                         );
@@ -207,7 +221,7 @@ public class CameraController
                 GLManager.GL.Rotate(cameraEntity.pitch - targetPitch, 1.0F, 0.0F, 0.0F);
                 GLManager.GL.Rotate(cameraEntity.yaw - targetYaw, 0.0F, 1.0F, 0.0F);
                 GLManager.GL.Translate(0.0F, 0.0F, (float)-currentDistance);
-                if (_game.options.CameraMode == EnumCameraMode.FrontThirdPerson)
+                if (_game.Options.CameraMode == EnumCameraMode.FrontThirdPerson)
                 {
                     GLManager.GL.Rotate(180.0F, 0.0F, 1.0F, 0.0F);
                 }
@@ -220,7 +234,7 @@ public class CameraController
             GLManager.GL.Translate(0.0F, 0.0F, -0.1F);
         }
 
-        if (!_game.options.DebugCamera)
+        if (!_game.Options.DebugCamera)
         {
             GLManager.GL.Rotate(cameraEntity.prevPitch + (cameraEntity.pitch - cameraEntity.prevPitch) * tickDelta, 1.0F, 0.0F, 0.0F);
             GLManager.GL.Rotate(cameraEntity.prevYaw + (cameraEntity.yaw - cameraEntity.prevYaw) * tickDelta + 180.0F, 0.0F, 1.0F, 0.0F);

@@ -2,7 +2,7 @@ using BetaSharp.Blocks;
 using BetaSharp.Client.Entities;
 using BetaSharp.Entities;
 using BetaSharp.Items;
-using BetaSharp.Worlds;
+using BetaSharp.Worlds.Core;
 
 namespace BetaSharp.Client.Input;
 
@@ -16,32 +16,30 @@ public class PlayerController
         Game = var1;
     }
 
-    public virtual void func_717_a(World var1)
+    public virtual void ChangeWorld(World world) { }
+
+    public virtual void clickBlock(int x, int y, int z, int direction)
     {
+        Game.World.ExtinguishFire(Game.Player, x, y, z, direction);
+        sendBlockRemoved(x, y, z, direction);
     }
 
-    public virtual void clickBlock(int var1, int var2, int var3, int var4)
+    public virtual bool sendBlockRemoved(int x, int y, int z, int direction)
     {
-        Game.world.extinguishFire(Game.player, var1, var2, var3, var4);
-        sendBlockRemoved(var1, var2, var3, var4);
-    }
-
-    public virtual bool sendBlockRemoved(int var1, int var2, int var3, int var4)
-    {
-        World var5 = Game.world;
-        Block var6 = Block.Blocks[var5.getBlockId(var1, var2, var3)];
-        var5.worldEvent(2001, var1, var2, var3, var6.id + var5.getBlockMeta(var1, var2, var3) * 256);
-        int var7 = var5.getBlockMeta(var1, var2, var3);
-        bool var8 = var5.setBlock(var1, var2, var3, 0);
-        if (var6 != null && var8)
+        World world = Game.World;
+        Block block = Block.Blocks[world.Reader.GetBlockId(x, y, z)];
+        world.Broadcaster.NotifyNeighbors(x, y, z, world.Reader.GetBlockId(x, y, z));
+        int blockMeta = world.Reader.GetBlockMeta(x, y, z);
+        bool success = world.Writer.SetBlock(x, y, z, 0);
+        if (block != null && success)
         {
-            var6.onMetadataChange(var5, var1, var2, var3, var7);
+            block.onMetadataChange(new OnMetadataChangeEvent(world, x, y, z, blockMeta));
         }
 
-        return var8;
+        return success;
     }
 
-    public virtual void sendBlockRemoving(int var1, int var2, int var3, int var4)
+    public virtual void sendBlockRemoving(int x, int y, int z, int direction)
     {
     }
 
@@ -78,7 +76,7 @@ public class PlayerController
         }
     }
 
-    public virtual void flipPlayer(EntityPlayer var1)
+    public virtual void flipPlayer(EntityPlayer playerEntity)
     {
     }
 
@@ -95,15 +93,33 @@ public class PlayerController
     {
     }
 
-    public virtual bool sendPlaceBlock(EntityPlayer var1, World var2, ItemStack var3, int var4, int var5, int var6, int var7)
+    public virtual bool sendPlaceBlock(
+        ClientPlayerEntity player,
+        World world,
+        ItemStack selectedItem,
+        int blockX,
+        int blockY,
+        int blockZ,
+        int blockSide
+    )
     {
-        int var8 = var2.getBlockId(var4, var5, var6);
-        return var8 > 0 && Block.Blocks[var8].onUse(var2, var4, var5, var6, var1) ? true : (var3 == null ? false : var3.useOnBlock(var1, var2, var4, var5, var6, var7));
+        int targetId = world.Reader.GetBlockId(blockX, blockY, blockZ);
+
+        if (targetId > 0 && !player.isSneaking())
+        {
+            if (!player.GameMode.CanInteract) return false;
+            bool used = Block.Blocks[targetId].onUse(new OnUseEvent(world, player, blockX, blockY, blockZ));
+            if (used) return true;
+        }
+
+        if (selectedItem == null || !player.GameMode.CanPlace) return false;
+
+        return selectedItem.useOnBlock(player, world, blockX, blockY, blockZ, blockSide);
     }
 
     public virtual EntityPlayer createPlayer(World var1)
     {
-        return new ClientPlayerEntity(Game, var1, Game.session, var1.dimension.Id);
+        return new ClientPlayerEntity(Game, var1, Game.Session, var1.Dimension.Id);
     }
 
     public virtual void interactWithEntity(EntityPlayer var1, Entity var2)
@@ -121,7 +137,7 @@ public class PlayerController
         return var5.currentScreenHandler.onSlotClick(var2, var3, var4, var5);
     }
 
-    public virtual void func_20086_a(int var1, EntityPlayer var2)
+    public virtual void OnGuiClosed(int var1, EntityPlayer var2)
     {
         var2.currentScreenHandler.onClosed(var2);
         var2.currentScreenHandler = var2.playerScreenHandler;

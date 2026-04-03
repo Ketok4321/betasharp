@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using BetaSharp.Blocks;
 using BetaSharp.Blocks.Materials;
-using BetaSharp.Client.Entities.FX;
 using BetaSharp.Client.Input;
 using BetaSharp.Client.Options;
 using BetaSharp.Client.Rendering.Core;
@@ -11,9 +10,8 @@ using BetaSharp.Entities;
 using BetaSharp.Profiling;
 using BetaSharp.Util.Hit;
 using BetaSharp.Util.Maths;
-using BetaSharp.Worlds;
-using BetaSharp.Worlds.Biomes;
-using BetaSharp.Worlds.Chunks;
+using BetaSharp.Worlds.Core;
+using BetaSharp.Worlds.Generation.Biomes;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using GLEnum = BetaSharp.Client.Rendering.Core.OpenGL.GLEnum;
@@ -32,14 +30,14 @@ public class GameRenderer
     private readonly MouseFilter _mouseFilterXAxis = new();
     private readonly MouseFilter _mouseFilterYAxis = new();
 
-    private long _prevFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-;
+    private long _prevFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private readonly JavaRandom _random = new();
     private int _rainSoundCounter;
     private readonly float[] _fogColorBuffer = new float[16];
     private float _fogColorRed;
     private float _fogColorGreen;
     private float _fogColorBlue;
+    private bool? _appliedVSyncState;
 
     private readonly Stopwatch _fpsTimer = Stopwatch.StartNew();
 
@@ -60,31 +58,31 @@ public class GameRenderer
 
     public void tick(float var1)
     {
-        if (_client.terrainRenderer != null)
+        if (_client.WorldRenderer != null)
         {
-            _client.terrainRenderer.tick(_client.camera, var1);
+            _client.WorldRenderer.Tick(_client.Camera, var1);
         }
     }
 
     public void UpdateTargetedEntity(float tickDelta)
     {
-        if (_client.camera == null)
+        if (_client.Camera == null)
         {
             return;
         }
 
-        if (_client.world == null)
+        if (_client.World == null)
         {
             return;
         }
 
-        double reachDistance = (double)_client.playerController.getBlockReachDistance();
-        _client.objectMouseOver = _client.camera.rayTrace(reachDistance, tickDelta);
-        Vec3D cameraPosition = _client.camera.getPosition(tickDelta);
+        double reachDistance = (double)_client.PlayerController.getBlockReachDistance();
+        _client.ObjectMouseOver = _client.Camera.rayTrace(reachDistance, tickDelta);
+        Vec3D cameraPosition = _client.Camera.getPosition(tickDelta);
 
-        if (_client.objectMouseOver.Type != HitResultType.MISS)
+        if (_client.ObjectMouseOver.Type != HitResultType.MISS)
         {
-            reachDistance = _client.objectMouseOver.Pos.distanceTo(cameraPosition);
+            reachDistance = _client.ObjectMouseOver.Pos.distanceTo(cameraPosition);
         }
 
         if (reachDistance > 3.0D)
@@ -92,12 +90,12 @@ public class GameRenderer
             reachDistance = 3.0D;
         }
 
-        Vec3D lookVec = _client.camera.getLook(tickDelta);
+        Vec3D lookVec = _client.Camera.getLook(tickDelta);
         Vec3D targetVec = cameraPosition + reachDistance * lookVec;
         _targetedEntity = null;
 
         float searchMargin = 1.0F;
-        List<Entity> entities = _client.world.getEntities(_client.camera, _client.camera.boundingBox.Stretch(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance).Expand((double)searchMargin, (double)searchMargin, (double)searchMargin));
+        List<Entity> entities = _client.World.Entities.GetEntities(_client.Camera, _client.Camera.boundingBox.Stretch(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance).Expand((double)searchMargin, (double)searchMargin, (double)searchMargin));
 
         double closestDistance = 0.0D;
         for (int i = 0; i < entities.Count; ++i)
@@ -131,15 +129,14 @@ public class GameRenderer
 
         if (_targetedEntity != null)
         {
-            _client.objectMouseOver = new HitResult(_targetedEntity);
+            _client.ObjectMouseOver = new HitResult(_targetedEntity);
         }
     }
 
 
-
     private void renderWorld(float tickDelta)
     {
-        _viewDistance = _client.options.renderDistance * 16.0f;
+        _viewDistance = _client.Options.renderDistance * 16.0f;
         GLManager.GL.MatrixMode(GLEnum.Projection);
         GLManager.GL.LoadIdentity();
 
@@ -147,23 +144,23 @@ public class GameRenderer
         {
             GLManager.GL.Translate((float)cameraController.CameraYaw, (float)-cameraController.CameraPitch, 0.0F);
             GLManager.GL.Scale(cameraController.CameraZoom, cameraController.CameraZoom, 1.0D);
-            GLU.gluPerspective(cameraController.GetFov(tickDelta), _client.displayWidth / (float)_client.displayHeight, 0.05F, _viewDistance * 2.0F);
+            GLU.gluPerspective(cameraController.GetFov(tickDelta), _client.DisplayWidth / (float)_client.DisplayHeight, 0.05F, _viewDistance * 2.0F);
         }
         else
         {
-            GLU.gluPerspective(cameraController.GetFov(tickDelta), _client.displayWidth / (float)_client.displayHeight, 0.05F, _viewDistance * 2.0F);
+            GLU.gluPerspective(cameraController.GetFov(tickDelta), _client.DisplayWidth / (float)_client.DisplayHeight, 0.05F, _viewDistance * 2.0F);
         }
 
         GLManager.GL.MatrixMode(GLEnum.Modelview);
         GLManager.GL.LoadIdentity();
 
         cameraController.ApplyDamageTiltEffect(tickDelta);
-        if (_client.options.ViewBobbing)
+        if (_client.Options.ViewBobbing)
         {
             cameraController.ApplyViewBobbing(tickDelta);
         }
 
-        float var4 = _client.player.lastScreenDistortion + (_client.player.changeDimensionCooldown - _client.player.lastScreenDistortion) * tickDelta;
+        float var4 = _client.Player.lastScreenDistortion + (_client.Player.changeDimensionCooldown - _client.Player.lastScreenDistortion) * tickDelta;
         if (var4 > 0.0F)
         {
             float var5 = 5.0F / (var4 * var4 + 5.0F) - var4 * 0.04F;
@@ -185,115 +182,135 @@ public class GameRenderer
             GLManager.GL.Translate((float)cameraController.CameraYaw, (float)-cameraController.CameraPitch, 0.0F);
             GLManager.GL.Scale(cameraController.CameraZoom, cameraController.CameraZoom, 1.0D);
         }
-        GLU.gluPerspective(cameraController.GetFov(tickDelta, true), _client.displayWidth / (float)_client.displayHeight, 0.05F, _viewDistance * 2.0F);
+
+        GLU.gluPerspective(cameraController.GetFov(tickDelta, true), _client.DisplayWidth / (float)_client.DisplayHeight, 0.05F, _viewDistance * 2.0F);
         GLManager.GL.MatrixMode(GLEnum.Modelview);
         GLManager.GL.LoadIdentity();
 
         GLManager.GL.PushMatrix();
         cameraController.ApplyDamageTiltEffect(tickDelta);
-        if (_client.options.ViewBobbing)
+        if (_client.Options.ViewBobbing)
         {
             cameraController.ApplyViewBobbing(tickDelta);
         }
 
-        if (_client.options.CameraMode == EnumCameraMode.FirstPerson && !_client.camera.isSleeping() && !_client.options.HideGUI)
+        if (_client.Options.CameraMode == EnumCameraMode.FirstPerson && !_client.Camera.isSleeping() && !_client.Options.HideGUI)
         {
             itemRenderer.renderItemInFirstPerson(tickDelta);
         }
 
         GLManager.GL.PopMatrix();
-        if (_client.options.CameraMode == EnumCameraMode.FirstPerson && !_client.camera.isSleeping())
+        if (_client.Options.CameraMode == EnumCameraMode.FirstPerson && !_client.Camera.isSleeping())
         {
             itemRenderer.renderOverlays(tickDelta);
             cameraController.ApplyDamageTiltEffect(tickDelta);
         }
 
-        if (_client.options.ViewBobbing)
+        if (_client.Options.ViewBobbing)
         {
             cameraController.ApplyViewBobbing(tickDelta);
         }
-
     }
 
     public void onFrameUpdate(float tickDelta)
     {
         if (!Display.isActive())
         {
-            if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
- - _prevFrameTime > 500L)
+            if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _prevFrameTime > 500L)
             {
-                _client.displayInGameMenu();
+                _client.DisplayInGameMenu();
             }
         }
         else
         {
-            _prevFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-;
+            _prevFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
 
-        if (_client.inGameHasFocus)
+        if (_client.InGameHasFocus)
         {
-            _client.mouseHelper.mouseXYChange();
-            float var2 = _client.options.MouseSensitivity * 0.6F + 0.2F;
+            _client.MouseHelper.MouseXYChange();
+            float var2 = _client.Options.MouseSensitivity * 0.6F + 0.2F;
             float var3 = var2 * var2 * var2 * 8.0F;
-            float var4 = _client.mouseHelper.DeltaX * var3;
-            float var5 = _client.mouseHelper.DeltaY * var3;
+            float var4 = _client.MouseHelper.DeltaX * var3;
+            float var5 = _client.MouseHelper.DeltaY * var3;
 
-            ControllerManager.HandleLook(ref var4, ref var5, var3);
+            bool zoomHeldForSensitivity = _client.CurrentScreen == null && _client.InGameHasFocus && Keyboard.isKeyDown(_client.Options.KeyBindZoom.keyCode);
+            if (zoomHeldForSensitivity)
+            {
+                float zoomProgress = 1.0F / System.Math.Clamp(_client.Options.ZoomScale, 1.25F, 20.0F);
+                float sensitivityFloor = 0.4F;
+                float zoomSensitivityMultiplier = sensitivityFloor + (1.0F - sensitivityFloor) * zoomProgress;
+                var4 *= zoomSensitivityMultiplier;
+                var5 *= zoomSensitivityMultiplier;
+            }
+
+            ControllerManager.HandleLook(ref var4, ref var5, var3, _client.Timer.DeltaTime);
             int var6 = -1;
-            if (_client.options.InvertMouse)
+            if (_client.Options.InvertMouse)
             {
                 var6 = 1;
             }
-            if (_client.options.SmoothCamera)
+
+            if (_client.Options.SmoothCamera)
             {
                 var4 = _mouseFilterXAxis.Smooth(var4, 0.05F * var3);
                 var5 = _mouseFilterYAxis.Smooth(var5, 0.05F * var3);
             }
-            _client.player.changeLookDirection(var4, var5 * var6);
+            _client.Player.changeLookDirection(var4, var5 * var6);
         }
 
-        if (!_client.skipRenderWorld)
+        bool zoomHeld = (_client.CurrentScreen == null && _client.InGameHasFocus && Keyboard.isKeyDown(_client.Options.KeyBindZoom.keyCode)) || ControllerManager.IsZoomHeld();
+        cameraController.SetZoomState(zoomHeld, _client.Options.ZoomScale);
+
+        if (!_client.SkipRenderWorld)
         {
-            ScaledResolution var13 = new(_client.options, _client.displayWidth, _client.displayHeight);
+            ScaledResolution var13 = new(_client.Options, _client.DisplayWidth, _client.DisplayHeight);
             int scaledWidth = var13.ScaledWidth;
             int scaledHeight = var13.ScaledHeight;
             int scaledMouseX;
             int scaledMouseY;
-            if (_client.isControllerMode)
+            int vpOffsetX = (int)_client.DebugViewportOffset.X;
+            int vpOffsetY = (int)_client.DebugViewportOffset.Y;
+            if (_client.IsControllerMode)
             {
-                scaledMouseX = (int)(_client.virtualCursorX * scaledWidth / _client.displayWidth);
-                scaledMouseY = (int)(_client.virtualCursorY * scaledHeight / _client.displayHeight);
+                scaledMouseX = (int)(_client.VirtualCursor.X * scaledWidth / _client.DisplayWidth);
+                scaledMouseY = (int)(_client.VirtualCursor.Y * scaledHeight / _client.DisplayHeight);
             }
             else
             {
-                scaledMouseX = Mouse.getX() * scaledWidth / _client.displayWidth;
-                scaledMouseY = scaledHeight - Mouse.getY() * scaledHeight / _client.displayHeight - 1;
+                scaledMouseX = (Mouse.getX() - vpOffsetX) * scaledWidth / _client.DisplayWidth;
+                scaledMouseY = scaledHeight - (Mouse.getY() - vpOffsetY) * scaledHeight / _client.DisplayHeight - 1;
             }
-            int var7 = 30 + (int)(_client.options.LimitFramerate * 210.0f);
+            int var7 = 30 + (int)(_client.Options.LimitFramerate * 210.0f);
+            bool desiredVSync = _client.Options.VSync && var7 >= 240;
 
-            if (var7 < 240)
+            if (_appliedVSyncState != desiredVSync)
             {
-                Display.setVSyncEnabled(false);
+                Display.setVSyncEnabled(desiredVSync);
+                _appliedVSyncState = desiredVSync;
             }
 
-            _client.PostProcessManager.Begin();
+            _client.FramebufferManager.Begin();
 
-            if (_client.world != null)
+            if (_client.World != null)
             {
-                Profiler.PushGroup("renderWorld");
-                renderFrame(tickDelta, 0L);
-                Profiler.PopGroup();
-                Profiler.Start("renderGameOverlay");
-                if (!_client.options.HideGUI || _client.currentScreen != null)
+                using (Profiler.Begin("RenderWorld"))
                 {
-                    _client.ingameGUI.renderGameOverlay(tickDelta, _client.currentScreen != null, scaledMouseX, scaledMouseY);
+                    renderFrame(tickDelta, 0L);
                 }
-                Profiler.Stop("renderGameOverlay");
+
+                using (Profiler.Begin("RenderGameOverlay"))
+                {
+                    if (!_client.Options.HideGUI || _client.CurrentScreen != null)
+                    {
+                        setupHudRender();
+                        _client.HUD.Render(scaledMouseX, scaledMouseY, tickDelta);
+                    }
+                }
             }
             else
             {
-                GLManager.GL.Viewport(0, 0, (uint)_client.displayWidth, (uint)_client.displayHeight);
+                GLManager.GL.Viewport(0, 0, (uint)_client.FramebufferManager.FramebufferWidth, (uint)_client.FramebufferManager.FramebufferHeight);
                 GLManager.GL.MatrixMode(GLEnum.Projection);
                 GLManager.GL.LoadIdentity();
                 GLManager.GL.MatrixMode(GLEnum.Modelview);
@@ -301,22 +318,21 @@ public class GameRenderer
                 setupHudRender();
             }
 
-            if (_client.currentScreen != null)
+            if (_client.CurrentScreen != null)
             {
                 GLManager.GL.Clear(ClearBufferMask.DepthBufferBit);
-                _client.currentScreen.Render(scaledMouseX, scaledMouseY, tickDelta);
-                if (_client.currentScreen != null && _client.currentScreen.ParticlesGui != null)
-                {
-                    _client.currentScreen.ParticlesGui.render(tickDelta);
-                }
+                setupHudRender();
+                _client.CurrentScreen.Render(scaledMouseX, scaledMouseY, tickDelta);
 
-                if (_client.isControllerMode)
+                if (_client.IsControllerMode)
                 {
                     DrawVirtualCursor(scaledMouseX, scaledMouseY);
                 }
             }
 
-            _client.PostProcessManager.End();
+
+            _client.FramebufferManager.End();
+
 
             if (var7 < 240)
             {
@@ -328,14 +344,22 @@ public class GameRenderer
 
                 if (waitTime > 0)
                 {
-                    if (waitTime > 2.0)
+                    while (true)
                     {
-                        Thread.Sleep((int)(waitTime - 1.0));
-                    }
+                        double remainingMs = targetMs - _fpsTimer.Elapsed.TotalMilliseconds;
+                        if (remainingMs <= 0)
+                        {
+                            break;
+                        }
 
-                    while (_fpsTimer.Elapsed.TotalMilliseconds < targetMs)
-                    {
-                        Thread.SpinWait(10);
+                        if (remainingMs > 2.0)
+                        {
+                            Thread.Sleep(1);
+                        }
+                        else
+                        {
+                            Thread.Yield();
+                        }
                     }
                 }
 
@@ -348,72 +372,75 @@ public class GameRenderer
     {
         GLManager.GL.Enable(GLEnum.CullFace);
         GLManager.GL.Enable(GLEnum.DepthTest);
-        _client.camera ??= _client.player;
 
-        Profiler.Start("getMouseOver");
-        UpdateTargetedEntity(tickDelta);
-        Profiler.Stop("getMouseOver");
+        using (Profiler.Begin("GetMouseOver"))
+        {
+            UpdateTargetedEntity(tickDelta);
+        }
 
-        EntityLiving entity = _client.camera;
-        WorldRenderer worldRenderer = _client.terrainRenderer;
-        ParticleManager particleManager = _client.particleManager;
+        EntityLiving entity = _client.Camera;
+        WorldRenderer worldRenderer = _client.WorldRenderer;
+        ParticleManager particleManager = _client.ParticleManager;
         double entX = entity.lastTickX + (entity.x - entity.lastTickX) * (double)tickDelta;
         double entY = entity.lastTickY + (entity.y - entity.lastTickY) * (double)tickDelta;
         double entZ = entity.lastTickZ + (entity.z - entity.lastTickZ) * (double)tickDelta;
-        ChunkSource var13 = _client.world.GetChunkSource();
 
-        Profiler.Start("updateFog");
-        GLManager.GL.Viewport(0, 0, (uint)_client.displayWidth, (uint)_client.displayHeight);
-        updateSkyAndFogColors(tickDelta);
-        Profiler.Stop("updateFog");
+        using (Profiler.Begin("UpdateFog"))
+        {
+            GLManager.GL.Viewport(0, 0, (uint)_client.FramebufferManager.FramebufferWidth, (uint)_client.FramebufferManager.FramebufferHeight);
+            updateSkyAndFogColors(tickDelta);
+        }
         GLManager.GL.Clear(ClearBufferMask.DepthBufferBit | ClearBufferMask.ColorBufferBit);
         GLManager.GL.Enable(GLEnum.CullFace);
         renderWorld(tickDelta);
         Frustum.Instance();
-        if (_client.options.renderDistance >= 8)
+        if (_client.Options.renderDistance >= 8)
         {
             applyFog(-1);
-            worldRenderer.renderSky(tickDelta);
+            worldRenderer.RenderSky(tickDelta);
         }
 
         GLManager.GL.Enable(GLEnum.Fog);
         applyFog(1);
 
         FrustrumCuller frustrumCuller = new();
-        frustrumCuller.setPosition(entX, entY, entZ);
+        frustrumCuller.SetPosition(entX, entY, entZ);
 
         applyFog(0);
         GLManager.GL.Enable(GLEnum.Fog);
-        _client.textureManager.BindTexture(_client.textureManager.GetTextureId("/terrain.png"));
+        _client.TextureManager.BindTexture(_client.TextureManager.GetTextureId("/terrain.png"));
         Lighting.turnOff();
 
-        Profiler.Start("sortAndRender");
-        worldRenderer.sortAndRender(entity, 0, (double)tickDelta, frustrumCuller);
-        Profiler.Stop("sortAndRender");
+        using (Profiler.Begin("SortAndRender"))
+        {
+            worldRenderer.SortAndRender(entity, 0, (double)tickDelta, frustrumCuller);
+        }
 
         GLManager.GL.ShadeModel(GLEnum.Flat);
         Lighting.turnOn();
 
-        Profiler.Start("renderEntities");
-        worldRenderer.renderEntities(entity.getPosition(tickDelta), frustrumCuller, tickDelta);
-        Profiler.Stop("renderEntities");
+        using (Profiler.Begin("RenderEntities"))
+        {
+            worldRenderer.RenderEntities(entity.getPosition(tickDelta), frustrumCuller, tickDelta);
+        }
 
-        particleManager.func_1187_b(entity, tickDelta);
+        particleManager.renderSpecialParticles(entity, tickDelta);
 
         Lighting.turnOff();
         applyFog(0);
 
-        Profiler.Start("renderParticles");
-        particleManager.renderParticles(entity, tickDelta);
-        Profiler.Stop("renderParticles");
+        using (Profiler.Begin("RenderParticles"))
+        {
+            particleManager.renderParticles(entity, tickDelta);
+        }
 
         EntityPlayer entityPlayer = default;
-        if (_client.objectMouseOver.Type != HitResultType.MISS && entity.isInFluid(Material.Water) && entity is EntityPlayer)
+        if (_client.ObjectMouseOver.Type != HitResultType.MISS && entity.isInFluid(Material.Water) && entity is EntityPlayer)
         {
             entityPlayer = (EntityPlayer)entity;
             GLManager.GL.Disable(GLEnum.AlphaTest);
-            worldRenderer.drawBlockBreaking(entityPlayer, _client.objectMouseOver, entityPlayer.inventory.getSelectedItem(), tickDelta);
-            worldRenderer.drawSelectionBox(entityPlayer, _client.objectMouseOver, 0, entityPlayer.inventory.getSelectedItem(), tickDelta);
+            worldRenderer.DrawBlockBreaking(entityPlayer, _client.ObjectMouseOver, entityPlayer.inventory.getSelectedItem(), tickDelta);
+            worldRenderer.DrawSelectionBox(entityPlayer, _client.ObjectMouseOver, 0, entityPlayer.inventory.getSelectedItem(), tickDelta);
             GLManager.GL.Enable(GLEnum.AlphaTest);
         }
 
@@ -421,27 +448,26 @@ public class GameRenderer
         applyFog(0);
         GLManager.GL.Enable(GLEnum.Blend);
         GLManager.GL.Disable(GLEnum.CullFace);
-        _client.textureManager.BindTexture(_client.textureManager.GetTextureId("/terrain.png"));
+        _client.TextureManager.BindTexture(_client.TextureManager.GetTextureId("/terrain.png"));
 
-        Profiler.Start("sortAndRender2");
+        using (Profiler.Begin("SortAndRenderTranslucent"))
+        {
+            worldRenderer.SortAndRender(entity, 1, tickDelta, frustrumCuller);
 
-        worldRenderer.sortAndRender(entity, 1, tickDelta, frustrumCuller);
-
-        GLManager.GL.ShadeModel(GLEnum.Flat);
-
-        Profiler.Stop("sortAndRender2");
+            GLManager.GL.ShadeModel(GLEnum.Flat);
+        }
 
         //TODO: SELCTION BOX/BLOCK BREAKING VISUALIZATON DON'T APPEAR PROPERLY MOST OF THE TIME, SAME WITH ENTITY SHADOWS. VIEW BOBBING MAKES ENTITES BOB UP AND DOWN
 
         GLManager.GL.DepthMask(true);
         GLManager.GL.Enable(GLEnum.CullFace);
         GLManager.GL.Disable(GLEnum.Blend);
-        if (cameraController.CameraZoom == 1.0D && entity is EntityPlayer && _client.objectMouseOver.Type != HitResultType.MISS && !entity.isInFluid(Material.Water))
+        if (!cameraController.IsZoomActive && entity is EntityPlayer && _client.ObjectMouseOver.Type != HitResultType.MISS && !entity.isInFluid(Material.Water))
         {
             entityPlayer = (EntityPlayer)entity;
             GLManager.GL.Disable(GLEnum.AlphaTest);
-            worldRenderer.drawBlockBreaking(entityPlayer, _client.objectMouseOver, entityPlayer.inventory.getSelectedItem(), tickDelta);
-            worldRenderer.drawSelectionBox(entityPlayer, _client.objectMouseOver, 0, entityPlayer.inventory.getSelectedItem(), tickDelta);
+            worldRenderer.DrawBlockBreaking(entityPlayer, _client.ObjectMouseOver, entityPlayer.inventory.getSelectedItem(), tickDelta);
+            worldRenderer.DrawSelectionBox(entityPlayer, _client.ObjectMouseOver, 0, entityPlayer.inventory.getSelectedItem(), tickDelta);
             GLManager.GL.Enable(GLEnum.AlphaTest);
         }
 
@@ -456,14 +482,14 @@ public class GameRenderer
 
         if (_client.ShowChunkBorders)
         {
-                renderChunkBorders(tickDelta);
+            renderChunkBorders(tickDelta);
         }
 
-        worldRenderer.renderClouds(tickDelta);
+        worldRenderer.RenderClouds(tickDelta);
         GLManager.GL.Disable(GLEnum.Fog);
         applyFog(1);
 
-        if (cameraController.CameraZoom == 1.0D)
+        if (!cameraController.IsZoomActive)
         {
             GLManager.GL.Clear(ClearBufferMask.DepthBufferBit);
             renderFirstPersonHand(tickDelta);
@@ -472,13 +498,13 @@ public class GameRenderer
 
     private void renderChunkBorders(float tickDelta)
     {
-        EntityLiving camera = _client.camera;
+        EntityLiving camera = _client.Camera;
         double camX = camera.lastTickX + (camera.x - camera.lastTickX) * tickDelta;
         double camY = camera.lastTickY + (camera.y - camera.lastTickY) * tickDelta;
         double camZ = camera.lastTickZ + (camera.z - camera.lastTickZ) * tickDelta;
 
-        int playerChunkX = _client.player.chunkX;
-        int playerChunkZ = _client.player.chunkZ;
+        int playerChunkX = _client.Player.chunkX;
+        int playerChunkZ = _client.Player.chunkZ;
 
         GLManager.GL.MatrixMode(GLEnum.Modelview);
         GLManager.GL.PushMatrix();
@@ -518,7 +544,7 @@ public class GameRenderer
             tess.addVertex(maxX, 128.0, z);
         }
 
-        for (int y = 0; y <= 128; y+=4)
+        for (int y = 0; y <= 128; y += 4)
         {
             if (y % 16 == 0) tess.setColorRGBA_F(0.0F, 0.0F, 1.0F, 1.0F);
             tess.addVertex(minX, y, minZ);
@@ -544,8 +570,8 @@ public class GameRenderer
 
         for (int i = 0; i < 4; i++)
         {
-            double x = minX + (i*16);
-            double z = minZ + (i*16);
+            double x = minX + (i * 16);
+            double z = minZ + (i * 16);
 
             tess.addVertex(x, 0.0, minZ);
             tess.addVertex(x, 128.0, minZ);
@@ -567,13 +593,13 @@ public class GameRenderer
 
     private void renderRain()
     {
-        float var1 = _client.world.getRainGradient(1.0F);
+        float var1 = _client.World.Environment.GetRainGradient(1.0F);
 
         if (var1 != 0.0F)
         {
             _random.SetSeed(_ticks * 312987231L);
-            EntityLiving var2 = _client.camera;
-            World var3 = _client.world;
+            EntityLiving var2 = _client.Camera;
+            World var3 = _client.World;
             int var4 = MathHelper.Floor(var2.x);
             int var5 = MathHelper.Floor(var2.y);
             int var6 = MathHelper.Floor(var2.z);
@@ -587,9 +613,9 @@ public class GameRenderer
             {
                 int var16 = var4 + _random.NextInt(var7) - _random.NextInt(var7);
                 int var17 = var6 + _random.NextInt(var7) - _random.NextInt(var7);
-                int var18 = var3.getTopSolidBlockY(var16, var17);
-                int var19 = var3.getBlockId(var16, var18 - 1, var17);
-                if (var18 <= var5 + var7 && var18 >= var5 - var7 && var3.getBiomeSource().GetBiome(var16, var17).CanSpawnLightningBolt())
+                int var18 = var3.Reader.GetTopSolidBlockY(var16, var17);
+                int var19 = var3.Reader.GetBlockId(var16, var18 - 1, var17);
+                if (var18 <= var5 + var7 && var18 >= var5 - var7 && var3.GetBiomeSource().GetBiome(var16, var17).CanSpawnLightningBolt())
                 {
                     float var20 = _random.NextFloat();
                     float var21 = _random.NextFloat();
@@ -597,7 +623,7 @@ public class GameRenderer
                     {
                         if (Block.Blocks[var19].material == Material.Lava)
                         {
-                            _client.particleManager.addEffect(new EntitySmokeFX(var3, (double)(var16 + var20), (double)(var18 + 0.1F) - Block.Blocks[var19].BoundingBox.MinY, (double)(var17 + var21), 0.0D, 0.0D, 0.0D));
+                            _client.ParticleManager.AddSmoke(var16 + var20, var18 + 0.1F - Block.Blocks[var19].BoundingBox.MinY, var17 + var21, 0.0, 0.0, 0.0);
                         }
                         else
                         {
@@ -609,7 +635,7 @@ public class GameRenderer
                                 var12 = (double)(var17 + var21);
                             }
 
-                            _client.particleManager.addEffect(new EntityRainFX(var3, (double)(var16 + var20), (double)(var18 + 0.1F) - Block.Blocks[var19].BoundingBox.MinY, (double)(var17 + var21)));
+                            _client.ParticleManager.AddRain(var16 + var20, var18 + 0.1F - Block.Blocks[var19].BoundingBox.MinY, var17 + var21);
                         }
                     }
                 }
@@ -618,26 +644,25 @@ public class GameRenderer
             if (var14 > 0 && _random.NextInt(3) < _rainSoundCounter++)
             {
                 _rainSoundCounter = 0;
-                if (var10 > var2.y + 1.0D && var3.getTopSolidBlockY(MathHelper.Floor(var2.x), MathHelper.Floor(var2.z)) > MathHelper.Floor(var2.y))
+                if (var10 > var2.y + 1.0D && var3.Reader.GetTopSolidBlockY(MathHelper.Floor(var2.x), MathHelper.Floor(var2.z)) > MathHelper.Floor(var2.y))
                 {
-                    _client.world.playSound(var8, var10, var12, "ambient.weather.rain", 0.1F, 0.5F);
+                    _client.World.Broadcaster.PlaySoundAtPos(var8, var10, var12, "ambient.weather.rain", 0.1F, 0.5F);
                 }
                 else
                 {
-                    _client.world.playSound(var8, var10, var12, "ambient.weather.rain", 0.2F, 1.0F);
+                    _client.World.Broadcaster.PlaySoundAtPos(var8, var10, var12, "ambient.weather.rain", 0.2F, 1.0F);
                 }
             }
-
         }
     }
 
     protected void renderSnow(float tickDelta)
     {
-        float var2 = _client.world.getRainGradient(tickDelta);
+        float var2 = _client.World.Environment.GetRainGradient(tickDelta);
         if (var2 > 0.0F)
         {
-            EntityLiving var3 = _client.camera;
-            World var4 = _client.world;
+            EntityLiving var3 = _client.Camera;
+            World var4 = _client.World;
             int var5 = MathHelper.Floor(var3.x);
             int var6 = MathHelper.Floor(var3.y);
             int var7 = MathHelper.Floor(var3.z);
@@ -647,14 +672,14 @@ public class GameRenderer
             GLManager.GL.Enable(GLEnum.Blend);
             GLManager.GL.BlendFunc(GLEnum.SrcAlpha, GLEnum.OneMinusSrcAlpha);
             GLManager.GL.AlphaFunc(GLEnum.Greater, 0.01F);
-            _client.textureManager.BindTexture(_client.textureManager.GetTextureId("/environment/snow.png"));
+            _client.TextureManager.BindTexture(_client.TextureManager.GetTextureId("/environment/snow.png"));
             double var9 = var3.lastTickX + (var3.x - var3.lastTickX) * (double)tickDelta;
             double var11 = var3.lastTickY + (var3.y - var3.lastTickY) * (double)tickDelta;
             double var13 = var3.lastTickZ + (var3.z - var3.lastTickZ) * (double)tickDelta;
             int var15 = MathHelper.Floor(var11);
             byte var16 = 10;
 
-            Biome[] var17 = var4.getBiomeSource().GetBiomesInArea(var5 - var16, var7 - var16, var16 * 2 + 1, var16 * 2 + 1);
+            Biome[] var17 = var4.GetBiomeSource().GetBiomesInArea(var5 - var16, var7 - var16, var16 * 2 + 1, var16 * 2 + 1);
             int var18 = 0;
 
             int var19;
@@ -671,7 +696,7 @@ public class GameRenderer
                     var21 = var17[var18++];
                     if (var21.GetEnableSnow())
                     {
-                        var22 = var4.getTopSolidBlockY(var19, var20);
+                        var22 = var4.Reader.GetTopSolidBlockY(var19, var20);
                         if (var22 < 0)
                         {
                             var22 = 0;
@@ -707,7 +732,7 @@ public class GameRenderer
                             double var33 = (double)(var20 + 0.5F) - var3.z;
                             float var35 = MathHelper.Sqrt(var31 * var31 + var33 * var33) / var16;
                             var8.startDrawingQuads();
-                            float var36 = var4.getLuminance(var19, var23, var20);
+                            float var36 = var4.GetLuminance(var19, var23, var20);
                             GLManager.GL.Color4(var36, var36, var36, ((1.0F - var35 * var35) * 0.3F + 0.5F) * var2);
                             var8.setTranslationD(-var9 * 1.0D, -var11 * 1.0D, -var13 * 1.0D);
                             var8.addVertexWithUV(var19 + 0, var24, var20 + 0.5D, (double)(0.0F * var26 + var29), (double)(var24 * var26 / 4.0F + var28 * var26 + var30));
@@ -725,7 +750,7 @@ public class GameRenderer
                 }
             }
 
-            _client.textureManager.BindTexture(_client.textureManager.GetTextureId("/environment/rain.png"));
+            _client.TextureManager.BindTexture(_client.TextureManager.GetTextureId("/environment/rain.png"));
             var16 = 10;
 
             var18 = 0;
@@ -737,7 +762,7 @@ public class GameRenderer
                     var21 = var17[var18++];
                     if (var21.CanSpawnLightningBolt())
                     {
-                        var22 = var4.getTopSolidBlockY(var19, var20);
+                        var22 = var4.Reader.GetTopSolidBlockY(var19, var20);
                         var23 = var6 - var16;
                         var24 = var6 + var16;
                         if (var23 < var22)
@@ -759,7 +784,7 @@ public class GameRenderer
                             double var39 = (double)(var20 + 0.5F) - var3.z;
                             float var40 = MathHelper.Sqrt(var38 * var38 + var39 * var39) / var16;
                             var8.startDrawingQuads();
-                            float var32 = var4.getLuminance(var19, 128, var20) * 0.85F + 0.15F;
+                            float var32 = var4.GetLuminance(var19, 128, var20) * 0.85F + 0.15F;
                             GLManager.GL.Color4(var32, var32, var32, ((1.0F - var40 * var40) * 0.5F + 0.5F) * var2);
                             var8.setTranslationD(-var9 * 1.0D, -var11 * 1.0D, -var13 * 1.0D);
                             var8.addVertexWithUV(var19 + 0, var23, var20 + 0.5D, (double)(0.0F * var37), (double)(var23 * var37 / 4.0F + var26 * var37));
@@ -785,11 +810,11 @@ public class GameRenderer
 
     public void setupHudRender()
     {
-        ScaledResolution var1 = new(_client.options, _client.displayWidth, _client.displayHeight);
+        ScaledResolution sr = new(_client.Options, _client.DisplayWidth, _client.DisplayHeight);
         GLManager.GL.Clear(ClearBufferMask.DepthBufferBit);
         GLManager.GL.MatrixMode(GLEnum.Projection);
         GLManager.GL.LoadIdentity();
-        GLManager.GL.Ortho(0.0D, var1.ScaledWidthDouble, var1.ScaledHeightDouble, 0.0D, 1000.0D, 3000.0D);
+        GLManager.GL.Ortho(0.0D, sr.ScaledWidthDouble, sr.ScaledHeightDouble, 0.0D, 1000.0D, 3000.0D);
         GLManager.GL.MatrixMode(GLEnum.Modelview);
         GLManager.GL.LoadIdentity();
         GLManager.GL.Translate(0.0F, 0.0F, -2000.0F);
@@ -797,7 +822,7 @@ public class GameRenderer
 
     public void DrawVirtualCursor(int x, int y)
     {
-        if (_client.isControllerMode)
+        if (_client.IsControllerMode && _client.CurrentScreen?.IsEditingSlider != true)
         {
             GLManager.GL.Disable(GLEnum.Lighting);
             GLManager.GL.Disable(GLEnum.DepthTest);
@@ -805,8 +830,8 @@ public class GameRenderer
             GLManager.GL.BlendFunc(GLEnum.SrcAlpha, GLEnum.OneMinusSrcAlpha);
             GLManager.GL.Color4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            TextureHandle textureId = _client.textureManager.GetTextureId("/gui/Pointer.png");
-            _client.textureManager.BindTexture(textureId);
+            TextureHandle textureId = _client.TextureManager.GetTextureId("/gui/Pointer.png");
+            _client.TextureManager.BindTexture(textureId);
 
             const int width = 32;
             const int height = 32;
@@ -830,23 +855,23 @@ public class GameRenderer
 
     private void updateSkyAndFogColors(float tickDelta)
     {
-        World var2 = _client.world;
-        EntityLiving var3 = _client.camera;
-        float var4 = 4.0F / _client.options.renderDistance;
+        World var2 = _client.World;
+        EntityLiving var3 = _client.Camera;
+        float var4 = 4.0F / _client.Options.renderDistance;
         var4 = System.Math.Clamp(var4, 0.25f, 1.0f);
         var4 = 1.0F - (float)Math.Pow(var4, 0.25D);
-        Vector3D<double> var5 = var2.getSkyColor(_client.camera, tickDelta);
+        Vector3D<double> var5 = var2.Environment.GetSkyColor(_client.Camera, tickDelta);
         float var6 = (float)var5.X;
         float var7 = (float)var5.Y;
         float var8 = (float)var5.Z;
-        Vector3D<double> var9 = var2.getFogColor(tickDelta);
+        Vector3D<double> var9 = var2.GetFogColor(tickDelta);
         _fogColorRed = (float)var9.X;
         _fogColorGreen = (float)var9.Y;
         _fogColorBlue = (float)var9.Z;
         _fogColorRed += (var6 - _fogColorRed) * var4;
         _fogColorGreen += (var7 - _fogColorGreen) * var4;
         _fogColorBlue += (var8 - _fogColorBlue) * var4;
-        float var10 = var2.getRainGradient(tickDelta);
+        float var10 = var2.Environment.GetRainGradient(tickDelta);
         float var11;
         float var12;
         if (var10 > 0.0F)
@@ -858,7 +883,7 @@ public class GameRenderer
             _fogColorBlue *= var12;
         }
 
-        var11 = var2.getThunderGradient(tickDelta);
+        var11 = var2.Environment.GetThunderGradient(tickDelta);
         if (var11 > 0.0F)
         {
             var12 = 1.0F - var11 * 0.5F;
@@ -869,7 +894,7 @@ public class GameRenderer
 
         if (_cloudFog)
         {
-            Vector3D<double> var16 = var2.getCloudColor(tickDelta);
+            Vector3D<double> var16 = var2.Environment.GetCloudColor(tickDelta);
             _fogColorRed = (float)var16.X;
             _fogColorGreen = (float)var16.Y;
             _fogColorBlue = (float)var16.Z;
@@ -897,52 +922,53 @@ public class GameRenderer
 
     private void applyFog(int mode)
     {
-        EntityLiving var3 = _client.camera;
+        EntityLiving var3 = _client.Camera;
         GLManager.GL.Fog(GLEnum.FogColor, updateFogColorBuffer(_fogColorRed, _fogColorGreen, _fogColorBlue, 1.0F));
-        _client.terrainRenderer.chunkRenderer.FogColor = new Vector4D<float>(_fogColorRed, _fogColorGreen, _fogColorBlue, 1.0f);
+        _client.WorldRenderer.ChunkRenderer.FogColor = new Vector4D<float>(_fogColorRed, _fogColorGreen, _fogColorBlue, 1.0f);
         GLManager.GL.Normal3(0.0F, -1.0F, 0.0F);
         GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
         if (_cloudFog)
         {
             GLManager.GL.Fog(GLEnum.FogMode, (int)GLEnum.Exp);
             GLManager.GL.Fog(GLEnum.FogDensity, 0.1F);
-            _client.terrainRenderer.chunkRenderer.FogMode = 1;
-            _client.terrainRenderer.chunkRenderer.FogDensity = 0.1f;
+            _client.WorldRenderer.ChunkRenderer.FogMode = 1;
+            _client.WorldRenderer.ChunkRenderer.FogDensity = 0.1f;
         }
         else if (var3.isInFluid(Material.Water))
         {
             GLManager.GL.Fog(GLEnum.FogMode, (int)GLEnum.Exp);
             GLManager.GL.Fog(GLEnum.FogDensity, 0.1F);
-            _client.terrainRenderer.chunkRenderer.FogMode = 1;
-            _client.terrainRenderer.chunkRenderer.FogDensity = 0.1f;
+            _client.WorldRenderer.ChunkRenderer.FogMode = 1;
+            _client.WorldRenderer.ChunkRenderer.FogDensity = 0.1f;
         }
         else if (var3.isInFluid(Material.Lava))
         {
             GLManager.GL.Fog(GLEnum.FogMode, (int)GLEnum.Exp);
             GLManager.GL.Fog(GLEnum.FogDensity, 2.0F);
-            _client.terrainRenderer.chunkRenderer.FogMode = 1;
-            _client.terrainRenderer.chunkRenderer.FogDensity = 2.0f;
+            _client.WorldRenderer.ChunkRenderer.FogMode = 1;
+            _client.WorldRenderer.ChunkRenderer.FogDensity = 2.0f;
         }
         else
         {
             GLManager.GL.Fog(GLEnum.FogMode, (int)GLEnum.Linear);
             GLManager.GL.Fog(GLEnum.FogStart, _viewDistance * 0.25F);
             GLManager.GL.Fog(GLEnum.FogEnd, _viewDistance);
-            _client.terrainRenderer.chunkRenderer.FogMode = 0;
-            _client.terrainRenderer.chunkRenderer.FogStart = _viewDistance * 0.25f;
-            _client.terrainRenderer.chunkRenderer.FogEnd = _viewDistance;
+            _client.WorldRenderer.ChunkRenderer.FogMode = 0;
+            _client.WorldRenderer.ChunkRenderer.FogStart = _viewDistance * 0.25f;
+            _client.WorldRenderer.ChunkRenderer.FogEnd = _viewDistance;
+
             if (mode < 0)
             {
                 GLManager.GL.Fog(GLEnum.FogStart, 0.0F);
                 GLManager.GL.Fog(GLEnum.FogEnd, _viewDistance * 0.8F);
-                _client.terrainRenderer.chunkRenderer.FogStart = 0.0f;
-                _client.terrainRenderer.chunkRenderer.FogEnd = _viewDistance * 0.8f;
+                _client.WorldRenderer.ChunkRenderer.FogStart = 0.0f;
+                _client.WorldRenderer.ChunkRenderer.FogEnd = _viewDistance * 0.8f;
             }
 
-            if (_client.world.dimension.IsNether)
+            if (_client.World.Dimension.IsNether)
             {
                 GLManager.GL.Fog(GLEnum.FogStart, 0.0F);
-                _client.terrainRenderer.chunkRenderer.FogStart = 0.0f;
+                _client.WorldRenderer.ChunkRenderer.FogStart = 0.0f;
             }
         }
 

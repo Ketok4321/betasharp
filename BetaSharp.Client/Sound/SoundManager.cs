@@ -6,7 +6,7 @@ using SFML.System;
 
 namespace BetaSharp.Client.Sound;
 
-public class SoundManager
+public class SoundManager : IDisposable
 {
     private readonly SoundPool _soundPoolSounds = new();
     private readonly SoundPool _soundPoolStreaming = new();
@@ -89,38 +89,6 @@ public class SoundManager
                 _currentMusic?.Volume = _options.MusicVolume * 100.0F;
             }
         }
-    }
-
-    public void CloseBetaSharp()
-    {
-        if (!_started) return;
-
-        _currentMusic?.Stop();
-        _currentMusic?.Dispose();
-        _currentMusic = null;
-        _currentStreaming?.Stop();
-        _currentStreaming?.Dispose();
-        _currentStreaming = null;
-
-        for (int i = 0; i < MaxChannels; i++)
-        {
-            if (soundChannels[i] != null)
-            {
-                soundChannels[i].Stop();
-                soundChannels[i].Dispose();
-                soundChannels[i] = null;
-            }
-        }
-
-        foreach (var bufferList in _soundBuffers.Values)
-        {
-            foreach (var buffer in bufferList)
-            {
-                buffer.Dispose();
-            }
-        }
-        _soundBuffers.Clear();
-
     }
 
     public void AddSound(string name, FileInfo file)
@@ -293,7 +261,7 @@ public class SoundManager
         Listener.UpVector = new Vector3f(0.0F, 1.0F, 0.0F);
     }
 
-    public void PlayStreaming(string name, float x, float y, float z, float volume, float pitch)
+    public void PlayStreaming(string? name, float x, float y, float z, float volume, float pitch)
     {
         if (!(_started && _options.SoundVolume != 0.0F)) return;
 
@@ -388,5 +356,37 @@ public class SoundManager
         sound.Attenuation = 1.0f;
 
         sound.Play();
+    }
+
+    public void Dispose()
+    {
+        if (!_started) return;
+
+        _currentMusic?.Stop();
+        _currentMusic?.Dispose();
+        _currentMusic = null;
+        _currentStreaming?.Stop();
+        _currentStreaming?.Dispose();
+        _currentStreaming = null;
+
+        for (int i = 0; i < MaxChannels; i++)
+        {
+            if (soundChannels[i] != null)
+            {
+                soundChannels[i].Stop();
+                soundChannels[i].Dispose();
+                soundChannels[i] = null;
+            }
+        }
+
+        foreach (List<SoundBuffer> bufferList in _soundBuffers.Values)
+        {
+            foreach (SoundBuffer buffer in bufferList)
+            {
+                buffer.Dispose();
+            }
+        }
+        _soundBuffers.Clear();
+
     }
 }

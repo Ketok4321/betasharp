@@ -1,12 +1,12 @@
 using BetaSharp.Blocks;
 using BetaSharp.Entities;
-using BetaSharp.Worlds;
+using BetaSharp.Util.Maths;
+using BetaSharp.Worlds.Core.Systems;
 
 namespace BetaSharp.Items;
 
 internal class ItemBlock : Item
 {
-
     private int blockID;
 
     public ItemBlock(int id) : base(id)
@@ -15,9 +15,9 @@ internal class ItemBlock : Item
         setTextureId(Block.Blocks[id + 256].getTexture(2));
     }
 
-    public override bool useOnBlock(ItemStack itemStack, EntityPlayer entityPlayer, World world, int x, int y, int z, int meta)
+    public override bool useOnBlock(ItemStack itemStack, EntityPlayer entityPlayer, IWorldContext world, int x, int y, int z, int meta)
     {
-        if (world.getBlockId(x, y, z) == Block.Snow.id)
+        if (world.Reader.GetBlockId(x, y, z) == Block.Snow.id)
         {
             meta = 0;
         }
@@ -58,35 +58,52 @@ internal class ItemBlock : Item
         {
             return false;
         }
-        else if (y == 127 && Block.Blocks[blockID].material.IsSolid)
+
+        int existingBlockId = world.Reader.GetBlockId(x, y, z);
+        if (existingBlockId != 0 && !Block.Blocks[existingBlockId].material.IsReplaceable)
         {
             return false;
         }
-        else if (world.canPlace(blockID, x, y, z, false, meta))
+
+        if (y == 127 && Block.Blocks[blockID].material.IsSolid)
         {
-            Block block = Block.Blocks[blockID];
-            if (world.setBlock(x, y, z, blockID, getPlacementMetadata(itemStack.getDamage())))
+            return false;
+        }
+
+        Block block = Block.Blocks[blockID];
+        Box? collisionBox = block.getCollisionShape(world.Reader, world.Entities, x, y, z);
+        if (collisionBox is { } box)
+        {
+            List<Entity> entitiesInBox = world.Entities.CollectEntitiesOfType<Entity>(box);
+            bool hasBlockingEntity = entitiesInBox.Any(entity => entity.preventEntitySpawning);
+            if (hasBlockingEntity)
             {
-                Block.Blocks[blockID].onPlaced(world, x, y, z, meta);
-                Block.Blocks[blockID].onPlaced(world, x, y, z, entityPlayer);
-                world.playSound((double)((float)x + 0.5F), (double)((float)y + 0.5F), (double)((float)z + 0.5F), block.soundGroup.StepSound, (block.soundGroup.Volume + 1.0F) / 2.0F, block.soundGroup.Pitch * 0.8F);
-                --itemStack.count;
+                return false;
+            }
+        }
+
+        if (block.canPlaceAt(new CanPlaceAtContext(world, meta, x, y, z)))
+        {
+            int placementMeta = getPlacementMetadata(itemStack.getDamage());
+            if (world.Writer.SetBlockWithoutCallingOnPlaced(x, y, z, blockID, placementMeta))
+            {
+                Block.Blocks[blockID].onPlaced(new OnPlacedEvent(world, entityPlayer, meta, meta, x, y, z));
+                world.Broadcaster.PlaySoundAtPos(x + 0.5F, y + 0.5F, z + 0.5F, block.soundGroup.StepSound, (block.soundGroup.Volume + 1.0F) / 2.0F, block.soundGroup.Pitch * 0.8F);
+                itemStack.ConsumeItem(entityPlayer);
             }
 
             return true;
         }
-        else
-        {
-            return false;
-        }
+
+        return false;
     }
 
-    public override String getItemNameIS(ItemStack itemStack)
+    public override string getItemNameIS(ItemStack itemStack)
     {
         return Block.Blocks[blockID].getBlockName();
     }
 
-    public override String getItemName()
+    public override string getItemName()
     {
         return Block.Blocks[blockID].getBlockName();
     }

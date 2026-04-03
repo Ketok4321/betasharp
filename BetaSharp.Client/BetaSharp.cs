@@ -1,13 +1,12 @@
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using BetaSharp.Blocks;
 using BetaSharp.Client.Achievements;
 using BetaSharp.Client.Diagnostics;
 using BetaSharp.Client.DynamicTexture;
 using BetaSharp.Client.Entities;
-using BetaSharp.Client.Guis;
 using BetaSharp.Client.Input;
 using BetaSharp.Client.Network;
 using BetaSharp.Client.Options;
@@ -17,10 +16,16 @@ using BetaSharp.Client.Rendering.Core.OpenGL;
 using BetaSharp.Client.Rendering.Core.Textures;
 using BetaSharp.Client.Rendering.Entities;
 using BetaSharp.Client.Rendering.Items;
-using BetaSharp.Client.Rendering.PostProcessing;
 using BetaSharp.Client.Resource;
 using BetaSharp.Client.Resource.Pack;
 using BetaSharp.Client.Sound;
+using BetaSharp.Client.UI;
+using BetaSharp.Client.UI.Screens;
+using BetaSharp.Client.UI.Screens.InGame;
+using BetaSharp.Client.UI.Screens.InGame.Containers;
+using BetaSharp.Client.UI.Screens.Menu;
+using BetaSharp.Client.UI.Screens.Menu.Net;
+using BetaSharp.Diagnostics;
 using BetaSharp.Entities;
 using BetaSharp.Items;
 using BetaSharp.Profiling;
@@ -29,187 +34,237 @@ using BetaSharp.Stats;
 using BetaSharp.Util;
 using BetaSharp.Util.Hit;
 using BetaSharp.Util.Maths;
-using BetaSharp.Worlds;
+using BetaSharp.Worlds.ClientData.Colors;
 using BetaSharp.Worlds.Colors;
+using BetaSharp.Worlds.Core;
+using BetaSharp.Worlds.Core.Systems;
 using BetaSharp.Worlds.Storage;
-using ImGuiNET;
+using Hexa.NET.ImGui;
+using Hexa.NET.ImGui.Backends.GLFW;
+using Hexa.NET.ImGui.Backends.OpenGL3;
 using Microsoft.Extensions.Logging;
-using Silk.NET.Input;
+using Silk.NET.Maths;
 using Silk.NET.OpenGL;
-using Silk.NET.OpenGL.Extensions.ImGui;
-using Silk.NET.Windowing;
 using GLEnum = BetaSharp.Client.Rendering.Core.OpenGL.GLEnum;
 
 namespace BetaSharp.Client;
 
-public partial class BetaSharp
+public partial class BetaSharp :
+    IScreenNavigator,
+    IControllerState,
+    IClientPlayerHost,
+    IWorldHost,
+    IInternalServerHost,
+    ISingleplayerHost
 {
-    public static BetaSharp Instance = null!;
-    private readonly ILogger<BetaSharp> _logger = Log.Instance.For<BetaSharp>();
-    public PlayerController playerController;
-    private bool fullscreen;
-    private bool hasCrashed;
-    public int displayWidth;
-    public int displayHeight;
+    #region Constants & Static Members
+
+    public static string Version { get; private set; } = UnknownVersion;
+    public static string BetaSharpDir => PathHelper.GetAppDir(nameof(BetaSharp));
+    public static long HasPaidCheckTime { get; private set; }
+
+    private const string UnknownVersion = "unknown version";
+    private static readonly bool s_isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+    #endregion
+
+    #region Core Game State
+
+    public volatile bool Running = true;
+    public volatile bool IsGamePaused;
 
     public Timer Timer { get; } = new(20.0F);
-    public World world;
-    public WorldRenderer terrainRenderer;
-    public ClientPlayerEntity player;
-    public EntityLiving camera;
-    public ParticleManager particleManager;
-    public Session session;
-    public bool hideQuitButton = false;
-    public volatile bool isGamePaused;
-    public TextureManager textureManager;
-    public SkinManager skinManager;
-    public TextRenderer fontRenderer;
-    public GuiScreen currentScreen;
-    public LoadingScreenRenderer loadingScreen;
-    public GameRenderer gameRenderer;
-    public PostProcessManager PostProcessManager { get; private set; }
     public int TicksRan { get; private set; }
-    private int leftClickCounter;
-    private int tempDisplayWidth;
-    private int tempDisplayHeight;
-    public GuiAchievement guiAchievement;
-    public GuiIngame ingameGUI;
-    public bool skipRenderWorld;
-    public HitResult objectMouseOver = new HitResult(HitResultType.MISS);
-    public GameOptions options;
-    public bool ShowChunkBorders = false;
-    public SoundManager sndManager = new();
-    public MouseHelper mouseHelper;
-    public TexturePacks texturePackList;
-    private string gameDataDir;
-    private IWorldStorageSource saveLoader;
-    public static long[] frameTimes = new long[512];
-    public static long[] tickTimes = new long[512];
-    public static int numRecordedFrameTimes;
-    public static long hasPaidCheckTime = 0L;
-    public StatFileWriter statFileWriter;
-    private string serverName;
-    private int serverPort;
-    private readonly WaterSprite textureWaterFX = new();
-    private readonly LavaSprite textureLavaFX = new();
-    public volatile bool running = true;
-    public string debug = "";
-    bool isTakingScreenshot;
-    long prevFrameTime = -1L;
-    public bool inGameHasFocus;
+    public Session Session { get; private set; }
+    public GameOptions Options { get; private set; }
+    public IWorldStorageSource SaveLoader { get; private set; }
+    public InternalServer? InternalServer { get; private set; }
+
+    #endregion
+
+    #region World & Player Data
+
+    public World World { get; private set; }
+    World? IWorldHost.World => World;
+    void IWorldHost.ChangeWorld(World? world) => ChangeWorld(world);
+
+    public ClientPlayerEntity Player { get; private set; }
+    public EntityLiving Camera => Player;
+    ClientPlayerEntity? IClientPlayerHost.Player => Player;
+
+    public PlayerController PlayerController { get; set; }
+    void IClientPlayerHost.SetPlayerController(PlayerController controller) => PlayerController = controller;
+
+    #endregion
+
+    #region Rendering & Display Systems
+
+    public int DisplayWidth { get; private set; }
+    public int DisplayHeight { get; private set; }
+
+    /// <summary>
+    /// When the debug viewport is active, the top-left pixel offset of the game viewport
+    /// within the window.
+    /// </summary>
+    public Vector2 DebugViewportOffset { get; private set; }
+
+    /// <summary>
+    /// The top-left screen position of the game viewport in ImGui/window pixels.
+    /// Zero when the debug menu is closed.
+    /// </summary>
+    public Vector2 DebugViewportScreenPos => _debugWindowManager?.ViewportPos ?? Vector2.Zero;
+
+    public bool ShowChunkBorders { get; private set; }
+    public bool SkipRenderWorld { get; private set; }
+    public string DebugText { get; private set; } = "";
+    public HitResult ObjectMouseOver = new(HitResultType.MISS);
+
+    public GameRenderer GameRenderer { get; private set; }
+    public WorldRenderer WorldRenderer { get; private set; }
+    public FramebufferManager FramebufferManager { get; private set; }
+    public TextureManager TextureManager { get; private set; }
+    public SkinManager SkinManager { get; private set; }
+    public TextRenderer TextRenderer { get; private set; }
+    public TexturePacks TexturePackList { get; private set; }
+    public ParticleManager ParticleManager { get; private set; }
+
+    #endregion
+
+    #region UI & Input Systems
+
+    public UIContext UIContext { get; private set; } = null!;
+    public UIScreen? CurrentScreen { get; private set; }
+    public HUD HUD { get; private set; } = null!;
+
+    public MouseHelper MouseHelper { get; private set; }
+    public VirtualCursor VirtualCursor { get; } = new();
+    public bool IsControllerMode { get; set; }
     public int MouseTicksRan { get; set; }
-    long systemTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-;
-    private int joinPlayerCounter;
-    private ImGuiController imGuiController;
-    public InternalServer? internalServer;
-    private GLErrorHandler _glErrorHandler;
+    public bool InGameHasFocus { get; private set; }
+
+    #endregion
+
+    #region Audio & Diagnostics
+
+    public SoundManager SoundManager { get; private set; } = new();
+    public StatFileWriter StatFileWriter { get; private set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly ILogger<BetaSharp> _logger = Log.Instance.For<BetaSharp>();
+    private readonly LoadingScreenRenderer _loadingScreen;
+    private readonly WaterSprite _textureWaterFX = new();
+    private readonly LavaSprite _textureLavaFX = new();
     private readonly DebugTelemetry _debugTelemetry = new();
 
-    private bool _wasLeftBumperDown;
-    private bool _wasRightBumperDown;
-    private bool _wasLeftTriggerDown;
-    private bool _wasRightTriggerDown;
-    private bool _wasStartButtonDown;
-    private bool _wasYButtonDown;
-    private bool _wasDpadLeftDown;
-    private bool _wasDpadRightDown;
-    private bool _wasDpadUpDown;
-    private bool _wasDpadDownDown;
+    private readonly string _serverName;
+    private readonly int _serverPort;
+    private readonly bool _hideQuitButton;
 
-    public bool isControllerMode;
-    public float virtualCursorX;
-    public float virtualCursorY;
+
+    private DebugWindowManager _debugWindowManager;
+    private GLErrorHandler _glErrorHandler;
+    private string _gameDataDir;
+
+    private bool _fullscreen;
+    private bool _prevF11Down;
+    private bool _prevF3Down;
+    private Vector2 _lastViewportSize;
+
+    private bool _hasCrashed;
+    private bool _isTakingScreenshot;
+
+    private int _leftClickCounter;
+    private int _tempDisplayWidth;
+    private int _tempDisplayHeight;
+    private int _joinPlayerCounter;
+
+    private long _prevFrameTime = -1L;
+    private long _systemTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    private bool _isMainMenuOpen => CurrentScreen is MainMenuScreen;
+    private bool _isGameOverOpen => CurrentScreen is GameOverScreen;
+
+    #endregion
+
+    #region Initialization & Lifecycle
 
     public BetaSharp(int width, int height, bool isFullscreen)
     {
-        loadingScreen = new LoadingScreenRenderer(this);
-        guiAchievement = new GuiAchievement(this);
-        tempDisplayHeight = height;
-        fullscreen = isFullscreen;
-        displayWidth = width;
-        displayHeight = height;
-
-        Instance = this;
+        _loadingScreen = new LoadingScreenRenderer(this);
+        _tempDisplayHeight = height;
+        _fullscreen = isFullscreen;
+        DisplayWidth = width;
+        DisplayHeight = height;
     }
 
-    [LibraryImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
-    private static partial uint TimeBeginPeriod(uint period);
-
-    [LibraryImport("winmm.dll", EntryPoint = "timeEndPeriod")]
-    private static partial uint TimeEndPeriod(uint period);
-
-    private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-
-    public void InitializeTimer()
+    public void StartGame()
     {
-        if (IsWindows)
-        {
-            TimeBeginPeriod(1);
-        }
-    }
+        LoadVersion();
 
-    public void CleanupTimer()
-    {
-        if (IsWindows)
-        {
-            TimeEndPeriod(1);
-        }
-    }
-
-    public void onBetaSharpCrash(Exception crashInfo)
-    {
-        hasCrashed = true;
-        _logger.LogError(crashInfo, "BetaSharp has crashed!");
-    }
-
-    public unsafe void startGame()
-    {
         Bootstrap.Initialize();
+        MetricRegistry.Bootstrap(typeof(ClientMetrics));
+        MetricRegistry.Bootstrap(typeof(RenderMetrics));
 
         InitializeTimer();
 
-        int maximumWidth = Display.getDisplayMode().getWidth();
-        int maximumHeight = Display.getDisplayMode().getHeight();
+        SetupDisplay();
+        SetupCoreSystems();
 
-        if (fullscreen)
+        LoadScreen();
+
+        SetupOpenGLAndInput();
+        SetupResourcesAndPostProcessing();
+
+        CheckGLError("Post startup");
+
+        StatFileWriter.ReadStat(Stats.Stats.StartGameStat, 1);
+        if (_serverName != null)
         {
-            Display.setFullscreen(true);
-
-            displayWidth = maximumWidth;
-            displayHeight = maximumHeight;
-
-            if (displayWidth <= 0)
-            {
-                displayWidth = 1;
-            }
-
-            if (displayHeight <= 0)
-            {
-                displayHeight = 1;
-            }
+            Navigate(new ConnectingScreen(UIContext, CreateNetworkContext(), _serverName, _serverPort));
         }
         else
         {
-            Display.setDisplayMode(new DisplayMode(displayWidth, displayHeight));
-            Display.setLocation((maximumWidth - displayWidth) / 2, (maximumHeight - displayHeight) / 2);
+            Navigate(CreateMainMenuScreen());
+        }
+    }
+
+    private unsafe void SetupDisplay()
+    {
+        int maximumWidth = Display.getDisplayMode().getWidth();
+        int maximumHeight = Display.getDisplayMode().getHeight();
+
+        if (_fullscreen)
+        {
+            Display.setFullscreen(true);
+            DisplayWidth = maximumWidth;
+            DisplayHeight = maximumHeight;
+
+            if (DisplayWidth <= 0) DisplayWidth = 1;
+            if (DisplayHeight <= 0) DisplayHeight = 1;
+        }
+        else
+        {
+            Display.setDisplayMode(new DisplayMode(DisplayWidth, DisplayHeight));
+            Display.setLocation((maximumWidth - DisplayWidth) / 2, (maximumHeight - DisplayHeight) / 2);
         }
 
-        Display.setTitle("BetaSharp Beta 1.7.3");
+        Display.setTitle("BetaSharp " + Version);
 
-        gameDataDir = getBetaSharpDir();
-        saveLoader = new RegionWorldStorageSource(Path.Combine(gameDataDir, "saves"));
-        options = new GameOptions(this, gameDataDir);
-        Profiler.Enabled = options.DebugMode;
-        Profiler.EnableLagSpikeDetection = options.DebugMode;
-        Profiler.LagSpikeDirectory = Path.Combine(gameDataDir, "logs", "lag_spikes");
+        _gameDataDir = BetaSharpDir;
+        SaveLoader = new RegionWorldStorageSource(Path.Combine(_gameDataDir, "saves"));
+        Options = new GameOptions(this, _gameDataDir);
+        Options.ReloadTextures += () => { TextureManager.Reload(); };
+        Options.ReloadChunks += () => { WorldRenderer.ChunkRenderer.MarkAllDirty(); };
+
+        Profiler.RegisterMainThread();
 
         try
         {
             int[] msaaValues = [0, 2, 4, 8];
-            Display.MSAA_Samples = msaaValues[options.MSAALevel];
-            Display.DebugMode = options.DebugMode;
+            Display.MSAA_Samples = msaaValues[Options.MSAALevel];
 
             Display.create();
             Display.getGlfw().SetWindowSizeLimits(Display.getWindowHandle(), 850, 480, maximumWidth, maximumHeight);
@@ -224,37 +279,66 @@ public partial class BetaSharp
                 _debugTelemetry.CaptureSystemInfo(null);
             }
 
-            Display.getGlfw().SwapInterval(options.VSync ? 1 : 0);
+            Display.getGlfw().SwapInterval(Options.VSync ? 1 : 0);
 
-            if (options.DebugMode)
-            {
+#if DEBUG
                 _glErrorHandler = new();
-            }
+#endif
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception");
+            _logger.LogError(ex, "Exception initializing display");
         }
-        texturePackList = new TexturePacks(this, new DirectoryInfo(gameDataDir));
-        textureManager = new TextureManager(this, texturePackList, options);
-        fontRenderer = new TextRenderer(options, textureManager);
-        skinManager = new SkinManager(textureManager);
-        WaterColors.loadColors(textureManager.GetColors("/misc/watercolor.png"));
-        GrassColors.loadColors(textureManager.GetColors("/misc/grasscolor.png"));
-        FoliageColors.loadColors(textureManager.GetColors("/misc/foliagecolor.png"));
-        gameRenderer = new GameRenderer(this);
-        EntityRenderDispatcher.instance.skinManager = skinManager;
-        EntityRenderDispatcher.instance.heldItemRenderer = new HeldItemRenderer(this);
-        statFileWriter = new StatFileWriter(session, gameDataDir);
+    }
+
+    private void SetupCoreSystems()
+    {
+        TexturePackList = new TexturePacks(this, new DirectoryInfo(_gameDataDir));
+        TextureManager = new TextureManager(this, TexturePackList, Options);
+        TextRenderer = new TextRenderer(Options, TextureManager);
+
+        UIContext = new UIContext(
+            Options,
+            TextRenderer,
+            TextureManager,
+            playClickSound: () => SoundManager.PlaySoundFX("random.click", 1.0f, 1.0f),
+            displaySize: () => new Vector2D<int>(DisplayWidth, DisplayHeight),
+            inputDisplaySize: () =>
+            {
+                if (Options.ShowDebugInfo && _debugWindowManager != null)
+                {
+                    Vector2 vs = _debugWindowManager.ViewportSize;
+                    if (vs.X > 0 && vs.Y > 0)
+                        return new Vector2D<int>((int)vs.X, (int)vs.Y);
+                }
+                return new Vector2D<int>(DisplayWidth, DisplayHeight);
+            },
+            controllerState: this,
+            VirtualCursor,
+            Timer,
+            navigator: this,
+            hasWorld: () => World != null,
+            mouseOffset: () => new Vector2D<int>((int)DebugViewportOffset.X, (int)DebugViewportOffset.Y)
+        );
+
+        SkinManager = new SkinManager(TextureManager);
+        WaterColors.loadColors(TextureManager.GetColors("/misc/watercolor.png"));
+        GrassColors.loadColors(TextureManager.GetColors("/misc/grasscolor.png"));
+        FoliageColors.loadColors(TextureManager.GetColors("/misc/foliagecolor.png"));
+        GameRenderer = new GameRenderer(this);
+        EntityRenderDispatcher.Instance.SkinManager = SkinManager;
+        EntityRenderDispatcher.Instance.HeldItemRenderer = new HeldItemRenderer(this);
+        StatFileWriter = new StatFileWriter(Session, _gameDataDir);
 
         StatStringFormatKeyInv format = new(this);
         global::BetaSharp.Achievements.OpenInventory.GetTranslatedDescription = () =>
         {
             return format.formatString(global::BetaSharp.Achievements.OpenInventory.TranslationKey);
         };
+    }
 
-        loadScreen();
-
+    private unsafe void SetupOpenGLAndInput()
+    {
         bool anisotropicFiltering = GLManager.GL.IsExtensionPresent("GL_EXT_texture_filter_anisotropic");
         _logger.LogInformation($"Anisotropic Filtering Supported: {anisotropicFiltering}");
 
@@ -269,26 +353,47 @@ public partial class BetaSharp
             GameOptions.MaxAnisotropy = 1.0f;
         }
 
-        try
-        {
-            IWindow window = Display.getWindow();
-            IInputContext input = window.CreateInput();
-            imGuiController = new(((LegacyGL)GLManager.GL).SilkGL, window, input);
-            imGuiController.MakeCurrent();
-        }
-        catch (Exception e)
-        {
-            _logger.LogError($"Failed to initialize ImGui: {e}");
-            imGuiController = null;
-        }
+        ImGui.CreateContext();
 
+        // ImGuiImplGLFW and ImGuiImplOpenGL3 are compiled into separate native DLLs,
+        // each with their own GImGui context pointer. We must share the context created
+        // by cimgui.dll with both backend DLLs before calling their Init functions.
+        ImGuiImplGLFW.SetCurrentContext(ImGui.GetCurrentContext());
+        ImGuiImplOpenGL3.SetCurrentContext(ImGui.GetCurrentContext());
+
+        ImGuiIO* io = ImGui.GetIO();
+        io->ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard | ImGuiConfigFlags.DockingEnable;
+
+        // Install game input callbacks first so the ImGui GLFW backend can chain to them.
         Keyboard.create(Display.getGlfw(), Display.getWindowHandle());
         Mouse.create(Display.getGlfw(), Display.getWindowHandle(), Display.getWidth(), Display.getHeight());
         Controller.Create(Display.getGlfw(), Display.getWindowHandle());
-        ControllerManager.Initialize(this);
-        mouseHelper = new MouseHelper();
 
-        checkGLError("Pre startup");
+        ImGuiImplGLFW.InitForOpenGL((GLFWwindow*)Display.getWindowHandle(), true);
+        ImGuiImplOpenGL3.Init("#version 330 core");
+        DebugWindowManager.ApplyStyle();
+
+        _debugWindowManager = new DebugWindowManager(this, () => InGameHasFocus);
+
+        ControllerManager.Initialize(this);
+        MouseHelper = new MouseHelper
+        {
+            GetUngrabCenter = () =>
+            {
+                if (Options.ShowDebugInfo && _debugWindowManager != null)
+                {
+                    Vector2 vp = _debugWindowManager.ViewportPos;
+                    Vector2 vs = _debugWindowManager.ViewportSize;
+                    if (vs.X > 0 && vs.Y > 0)
+                    {
+                        return new((int)(vp.X + vs.X / 2), (int)(vp.Y + vs.Y / 2));
+                    }
+                }
+                return new(Display.getWidth() / 2, Display.getHeight() / 2);
+            }
+        };
+
+        CheckGLError("Pre startup");
         GLManager.GL.Enable(GLEnum.Texture2D);
         GLManager.GL.ShadeModel(GLEnum.Smooth);
         GLManager.GL.ClearDepth(1.0D);
@@ -300,209 +405,94 @@ public partial class BetaSharp
         GLManager.GL.MatrixMode(GLEnum.Projection);
         GLManager.GL.LoadIdentity();
         GLManager.GL.MatrixMode(GLEnum.Modelview);
-        checkGLError("Startup");
-        sndManager.LoadSoundSettings(options);
-        DefaultMusicCategories.Register(sndManager);
-        textureManager.AddDynamicTexture(textureLavaFX);
-        textureManager.AddDynamicTexture(textureWaterFX);
-        textureManager.AddDynamicTexture(new NetherPortalSprite());
-        textureManager.AddDynamicTexture(new CompassSprite(this));
-        textureManager.AddDynamicTexture(new ClockSprite(this));
-        textureManager.AddDynamicTexture(new WaterSideSprite());
-        textureManager.AddDynamicTexture(new LavaSideSprite());
-        textureManager.AddDynamicTexture(new FireSprite(0));
-        textureManager.AddDynamicTexture(new FireSprite(1));
-        terrainRenderer = new WorldRenderer(this, textureManager);
-        GLManager.GL.Viewport(0, 0, (uint)displayWidth, (uint)displayHeight);
-        particleManager = new ParticleManager(world, textureManager);
+        CheckGLError("Startup");
+    }
 
-        string dataDirPath = gameDataDir;
+    private void SetupResourcesAndPostProcessing()
+    {
+        SoundManager.LoadSoundSettings(Options);
+        DefaultMusicCategories.Register(SoundManager);
+
+        TextureManager.AddDynamicTexture(_textureLavaFX);
+        TextureManager.AddDynamicTexture(_textureWaterFX);
+        TextureManager.AddDynamicTexture(new NetherPortalSprite());
+        TextureManager.AddDynamicTexture(new CompassSprite(this));
+        TextureManager.AddDynamicTexture(new ClockSprite(this));
+        TextureManager.AddDynamicTexture(new WaterSideSprite());
+        TextureManager.AddDynamicTexture(new LavaSideSprite());
+        TextureManager.AddDynamicTexture(new FireSprite(0));
+        TextureManager.AddDynamicTexture(new FireSprite(1));
+
+        WorldRenderer = new WorldRenderer(this, TextureManager);
+        GLManager.GL.Viewport(0, 0, (uint)Display.getFramebufferWidth(), (uint)Display.getFramebufferHeight());
+        ParticleManager = new ParticleManager(World, TextureManager);
 
         _ = new ResourceManager()
-            .Add(new BetaResourceDownloader(this, dataDirPath))
-            .Add(new ModernAssetDownloader(this, dataDirPath,
-                [
-                 "minecraft/sounds/music/menu/moog_city_2.ogg",
-                 "minecraft/sounds/music/menu/mutation.ogg",
-                 "minecraft/sounds/music/menu/floating_trees.ogg",
-                 "minecraft/sounds/music/menu/beginning_2.ogg",
-                ])).LoadAllAsync();
+            .Add(new BetaResourceDownloader(this, _gameDataDir))
+            .Add(new ModernAssetDownloader(this, _gameDataDir,
+            [
+                "minecraft/sounds/music/menu/moog_city_2.ogg",
+                "minecraft/sounds/music/menu/mutation.ogg",
+                "minecraft/sounds/music/menu/floating_trees.ogg",
+                "minecraft/sounds/music/menu/beginning_2.ogg",
+            ])).LoadAllAsync();
 
-        checkGLError("Post startup");
-        ingameGUI = new GuiIngame(this);
-        PostProcessManager = new PostProcessManager(displayWidth, displayHeight, options);
+        HUD = new HUD(UIContext, new HUDContext(
+            () => Player,
+            () => PlayerController,
+            () => World,
+            () => CurrentScreen == null && Player != null && World != null
+                ? new InGameTipContext(ObjectMouseOver, World.Reader, Player.inventory.getSelectedItem())
+                : null,
+            () => _isMainMenuOpen
+        ));
 
-        statFileWriter.ReadStat(Stats.Stats.StartGameStat, 1);
-        if (serverName != null)
-        {
-            displayGuiScreen(new GuiConnecting(this, serverName, serverPort));
-        }
-        else
-        {
-            displayGuiScreen(new GuiMainMenu());
-        }
+        FramebufferManager = new FramebufferManager(Display.getFramebufferWidth(), Display.getFramebufferHeight(), Options);
     }
 
-    private void loadScreen()
-    {
-        ScaledResolution var1 = new(options, displayWidth, displayHeight);
-        GLManager.GL.Clear(ClearBufferMask.DepthBufferBit | ClearBufferMask.ColorBufferBit);
-        GLManager.GL.MatrixMode(GLEnum.Projection);
-        GLManager.GL.LoadIdentity();
-        GLManager.GL.Ortho(0.0D, var1.ScaledWidthDouble, var1.ScaledHeightDouble, 0.0D, 1000.0D, 3000.0D);
-        GLManager.GL.MatrixMode(GLEnum.Modelview);
-        GLManager.GL.LoadIdentity();
-        GLManager.GL.Translate(0.0F, 0.0F, -2000.0F);
-        GLManager.GL.Viewport(0, 0, (uint)displayWidth, (uint)displayHeight);
-        GLManager.GL.ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-        Tessellator tessellator = Tessellator.instance;
-        GLManager.GL.Disable(GLEnum.Lighting);
-        GLManager.GL.Enable(GLEnum.Texture2D);
-        GLManager.GL.Disable(GLEnum.Fog);
-        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
-        textureManager.BindTexture(textureManager.GetTextureId("/title/mojang.png"));
-        tessellator.startDrawingQuads();
-        tessellator.setColorOpaque_I(0xFFFFFF);
-        tessellator.addVertexWithUV(0.0D, (double)displayHeight, 0.0D, 0.0D, 0.0D);
-        tessellator.addVertexWithUV((double)displayWidth, (double)displayHeight, 0.0D, 0.0D, 0.0D);
-        tessellator.addVertexWithUV((double)displayWidth, 0.0D, 0.0D, 0.0D, 0.0D);
-        tessellator.addVertexWithUV(0.0D, 0.0D, 0.0D, 0.0D, 0.0D);
-        tessellator.draw();
-        short var3 = 256;
-        short var4 = 256;
-        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
-        tessellator.setColorOpaque_I(0xFFFFFF);
-        drawTextureRegion((var1.ScaledWidth - var3) / 2, (var1.ScaledHeight - var4) / 2, 0, 0, var3, var4);
-        GLManager.GL.Disable(GLEnum.Lighting);
-        GLManager.GL.Disable(GLEnum.Fog);
-        GLManager.GL.Enable(GLEnum.AlphaTest);
-        GLManager.GL.AlphaFunc(GLEnum.Greater, 0.1F);
-        Display.swapBuffers();
-    }
-
-    public void drawTextureRegion(int x, int y, int texX, int texY, int width, int height)
-    {
-        float uScale = 1 / 256f;
-        float vScale = 1 / 256f;
-
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawingQuads();
-        tess.addVertexWithUV(x + 0, y + height, 0, (texX + 0) * uScale, (texY + height) * vScale);
-        tess.addVertexWithUV(x + width, y + height, 0, (texX + width) * uScale, (texY + height) * vScale);
-        tess.addVertexWithUV(x + width, y + 0, 0, (texX + width) * uScale, (texY + 0) * vScale);
-        tess.addVertexWithUV(x + 0, y + 0, 0, (texX + 0) * uScale, (texY + 0) * vScale);
-        tess.draw();
-    }
-
-    public static string getBetaSharpDir()
-    {
-        return PathHelper.GetAppDir(nameof(BetaSharp));
-    }
-
-    public IWorldStorageSource getSaveLoader()
-    {
-        return saveLoader;
-    }
-
-    public void displayGuiScreen(GuiScreen? newScreen)
-    {
-        Mouse.ClearEvents();
-        Controller.ClearEvents();
-        currentScreen?.OnGuiClosed();
-
-        if (newScreen is GuiMainMenu)
-        {
-            statFileWriter.Tick();
-
-            if (inGameHasFocus)
-            {
-                sndManager.StopCurrentMusic();
-            }
-        }
-
-        statFileWriter.SyncStats();
-        if (newScreen == null && world == null)
-        {
-            newScreen = new GuiMainMenu();
-        }
-        else if (newScreen == null && player.health <= 0)
-        {
-            newScreen = new GuiGameOver();
-        }
-
-        if (newScreen is GuiMainMenu)
-        {
-            ingameGUI.clearChatMessages();
-        }
-
-        currentScreen = newScreen;
-
-        if (currentScreen != null)
-        {
-            virtualCursorX = displayWidth / 2.0f;
-            virtualCursorY = displayHeight / 2.0f;
-        }
-
-        if (internalServer != null)
-        {
-            bool shouldPause = newScreen?.PausesGame ?? false;
-            internalServer.SetPaused(shouldPause);
-        }
-
-        if (newScreen != null)
-        {
-            setIngameNotInFocus();
-            ScaledResolution scaledResolution = new(options, displayWidth, displayHeight);
-            int scaledWidth = scaledResolution.ScaledWidth;
-            int scaledHeight = scaledResolution.ScaledHeight;
-            newScreen.SetWorldAndResolution(this, scaledWidth, scaledHeight);
-            skipRenderWorld = false;
-        }
-        else
-        {
-            setIngameFocus();
-            sndManager.StopMusic(DefaultMusicCategories.Menu);
-        }
-    }
-
-    [Conditional("DEBUG")]
-    private void checkGLError(string location)
-    {
-        GLEnum glError = GLManager.GL.GetError();
-        if (glError != 0)
-        {
-            _logger.LogError($"#### GL ERROR ####");
-            _logger.LogError($"@ {location}");
-            _logger.LogError($"> {glError.ToString()}");
-            _logger.LogError($"");
-        }
-    }
-
-    public void ShutdownBetaSharpApplet()
+    private void LoadVersion()
     {
         try
         {
-            stopInternalServer();
-            statFileWriter.Tick();
-            statFileWriter.SyncStats();
+            if (File.Exists("version.txt"))
+            {
+                Version = File.ReadAllText("version.txt").Trim().ToLower();
+            }
+            else
+            {
+                Version = "development build";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to load version: {}", ex.Message);
+            Version = UnknownVersion;
+        }
+    }
+
+    public void Shutdown()
+    {
+        Running = false;
+    }
+
+    private void ShutdownGame()
+    {
+        try
+        {
+            StopInternalServer();
+            StatFileWriter.Tick();
+            StatFileWriter.SyncStats();
 
             _logger.LogInformation("Stopping!");
 
-            try
-            {
-                changeWorld((World)null);
-            }
-            catch (Exception) { }
+            try { ChangeWorld(null); } catch (Exception) { }
+            try { GLAllocation.deleteTexturesAndDisplayLists(); } catch (Exception) { }
 
-            try
-            {
-                GLAllocation.deleteTexturesAndDisplayLists();
-            }
-            catch (Exception) { }
+            // don't bother trying to shutdown imgui because it keeps hanging/crashing
 
-            skinManager.Dispose();
-            textureManager.Dispose();
-            sndManager.CloseBetaSharp();
+            SkinManager.Dispose();
+            TextureManager.Dispose();
+            SoundManager.Dispose();
             Mouse.destroy();
             Keyboard.destroy();
 
@@ -513,24 +503,45 @@ public partial class BetaSharp
             Display.destroy();
             CleanupTimer();
 
-            if (!hasCrashed)
+            if (!_hasCrashed)
             {
                 Environment.Exit(0);
             }
         }
     }
 
+    public void CrashCleanup()
+    {
+        try
+        {
+            ChangeWorld(null);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    public void OnGameCrash(Exception crashInfo)
+    {
+        _hasCrashed = true;
+        _logger.LogError(crashInfo, "BetaSharp has crashed!");
+    }
+
+    #endregion
+
+    #region Main Game Loop
+
     public void Run()
     {
-        running = true;
+        Running = true;
 
         try
         {
-            startGame();
+            StartGame();
         }
         catch (Exception startupException)
         {
-            onBetaSharpCrash(startupException);
+            OnGameCrash(startupException);
             return;
         }
 
@@ -539,88 +550,33 @@ public partial class BetaSharp
             long lastFpsCheckTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             int frameCounter = 0;
 
-            while (running)
+            while (Running)
             {
                 long frameStartNano = Stopwatch.GetTimestamp();
 
-                int startGcGen0 = GC.CollectionCount(0);
-                int startGcGen1 = GC.CollectionCount(1);
-                int startGcGen2 = GC.CollectionCount(2);
+                Profiler.Update(Timer.DeltaTime);
 
-                if (options.DebugMode)
-                {
-                    Profiler.Update(Timer.DeltaTime);
-                    Profiler.PushGroup("run");
-                }
                 try
                 {
                     if (Display.isCloseRequested())
                     {
-                        shutdown();
+                        Shutdown();
                     }
 
                     Controller.PollEvents();
-                    if (Controller.IsActive())
+                    if (Controller.IsActive() && !IsControllerMode)
                     {
-                        if (!isControllerMode)
-                        {
-                            Mouse.setCursorVisible(false);
-                            isControllerMode = true;
-                        }
+                        Mouse.setCursorVisible(false);
+                        IsControllerMode = true;
                     }
 
-                    if (isControllerMode && currentScreen != null)
+                    if (IsControllerMode && CurrentScreen != null)
                     {
-                        float lx = Controller.LeftStickX;
-                        float ly = Controller.LeftStickY;
-
-                        bool dpadLeft = Controller.IsButtonDown(Silk.NET.GLFW.GamepadButton.DPadLeft);
-                        bool dpadRight = Controller.IsButtonDown(Silk.NET.GLFW.GamepadButton.DPadRight);
-                        bool dpadUp = Controller.IsButtonDown(Silk.NET.GLFW.GamepadButton.DPadUp);
-                        bool dpadDown = Controller.IsButtonDown(Silk.NET.GLFW.GamepadButton.DPadDown);
-
-                        bool dpadHandled = false;
-
-                        if (currentScreen != null)
-                        {
-                            int dpadX = 0, dpadY = 0;
-                            if (dpadLeft && !_wasDpadLeftDown) dpadX = -1;
-                            if (dpadRight && !_wasDpadRightDown) dpadX = 1;
-                            if (dpadUp && !_wasDpadUpDown) dpadY = -1;
-                            if (dpadDown && !_wasDpadDownDown) dpadY = 1;
-
-                            if (dpadX != 0 || dpadY != 0)
-                            {
-                                dpadHandled = currentScreen.HandleDPadNavigation(dpadX, dpadY, ref virtualCursorX, ref virtualCursorY);
-                            }
-                        }
-
-                        _wasDpadLeftDown = dpadLeft;
-                        _wasDpadRightDown = dpadRight;
-                        _wasDpadUpDown = dpadUp;
-                        _wasDpadDownDown = dpadDown;
-
-                        if (!dpadHandled)
-                        {
-                            if (dpadLeft) lx = -0.2f;
-                            if (dpadRight) lx = 0.2f;
-                            if (dpadUp) ly = -0.2f;
-                            if (dpadDown) ly = 0.2f;
-                        }
-
-                        ScaledResolution sr = new(options, displayWidth, displayHeight);
-                        float speed = 200f * sr.ScaleFactor;
-
-                        virtualCursorX += lx * speed * Timer.DeltaTime;
-                        virtualCursorY += ly * speed * Timer.DeltaTime;
-
-                        if (virtualCursorX < 0) virtualCursorX = 0;
-                        if (virtualCursorX > displayWidth) virtualCursorX = displayWidth;
-                        if (virtualCursorY < 0) virtualCursorY = 0;
-                        if (virtualCursorY > displayHeight) virtualCursorY = displayHeight;
+                        Vector2D<int> inputSize = UIContext.InputDisplaySize;
+                        VirtualCursor.Update(CurrentScreen, Options, inputSize.X, inputSize.Y, Timer.DeltaTime);
                     }
 
-                    if (isGamePaused && world != null)
+                    if (IsGamePaused && World != null)
                     {
                         float previousRenderPartialTicks = Timer.renderPartialTicks;
                         Timer.UpdateTimer();
@@ -631,809 +587,398 @@ public partial class BetaSharp
                         Timer.UpdateTimer();
                     }
 
+                    bool imguiThisFrame = Options.ShowDebugInfo;
+                    if (imguiThisFrame)
+                    {
+                        ImGuiImplOpenGL3.NewFrame();
+                        ImGuiImplGLFW.NewFrame();
+                        ImGui.NewFrame();
+                        ImGuiInput.CapturingKeyboard = ImGui.GetIO().WantCaptureKeyboard && !_debugWindowManager.GameViewportFocused;
+                    }
+                    else
+                    {
+                        ImGuiInput.CapturingKeyboard = false;
+                    }
+
                     long tickStartTime = Stopwatch.GetTimestamp();
-                    if (options.DebugMode)
-                    {
-                        Profiler.PushGroup("runTicks");
-                    }
 
-                    for (int tickIndex = 0; tickIndex < Timer.elapsedTicks; ++tickIndex)
+                    using (Profiler.Begin("Ticks"))
                     {
-                        ++TicksRan;
-
-                        runTick(Timer.renderPartialTicks);
-                    }
-
-                    if (options.DebugMode)
-                    {
-                        Profiler.PopGroup();
+                        for (int tickIndex = 0; tickIndex < Timer.elapsedTicks; ++tickIndex)
+                        {
+                            ++TicksRan;
+                            RunTick(Timer.renderPartialTicks);
+                        }
                     }
 
                     long tickElapsedTime = Stopwatch.GetTimestamp() - tickStartTime;
-                    checkGLError("Pre render");
-                    sndManager.UpdateListener(player, Timer.renderPartialTicks);
+                    CheckGLError("Pre render");
+
+                    SoundManager.UpdateListener(Player, Timer.renderPartialTicks);
                     GLManager.GL.Enable(GLEnum.Texture2D);
-                    if (world != null)
+
+                    if (World != null)
                     {
-                        if (options.DebugMode) Profiler.Start("updateLighting");
-                        world.doLightingUpdates();
-                        if (options.DebugMode) Profiler.Stop("updateLighting");
+                        using (Profiler.Begin("UpdateLighting"))
+                        {
+                            World.Lighting.DoLightingUpdates();
+                        }
                     }
 
                     if (!Keyboard.isKeyDown(Keyboard.KEY_F7))
                     {
-                        if (options.DebugMode) Profiler.Start("wait");
-                        Display.update();
-                        if (options.DebugMode) Profiler.Stop("wait");
-                    }
-
-                    if (player != null && player.isInsideWall())
-                    {
-                        options.CameraMode = EnumCameraMode.FirstPerson;
-                    }
-
-                    if (!skipRenderWorld)
-                    {
-                        playerController?.setPartialTime(Timer.renderPartialTicks);
-
-                        if (options.DebugMode)
+                        using (Profiler.Begin("DisplayPresent"))
                         {
-                            Profiler.PushGroup("render");
-                            TextureStats.StartFrame();
-                        }
-                        gameRenderer.onFrameUpdate(Timer.renderPartialTicks);
-                        if (options.DebugMode)
-                        {
-                            TextureStats.EndFrame();
-                            Profiler.PopGroup();
+                            Display.update();
                         }
                     }
 
-                    if (imGuiController != null && Timer.DeltaTime > 0.0f && options.ShowDebugInfo && options.DebugMode)
+                    if (Player != null && Player.isInsideWall())
                     {
-                        imGuiController.Update(Timer.DeltaTime);
-                        ProfilerRenderer.Draw();
-                        ProfilerRenderer.DrawGraph();
+                        Options.CameraMode = EnumCameraMode.FirstPerson;
+                    }
 
-                        ImGui.Begin("Render Info");
-                        ImGui.Text($"Chunks Total: {terrainRenderer.chunkRenderer.TotalChunks}");
-                        ImGui.Text($"Chunks Frustum: {terrainRenderer.chunkRenderer.ChunksInFrustum}");
-                        ImGui.Text($"Chunks Occluded: {terrainRenderer.chunkRenderer.ChunksOccluded}");
-                        ImGui.Text($"Chunks Rendered: {terrainRenderer.chunkRenderer.ChunksRendered}");
-                        ImGui.Separator();
-                        ImGui.Text($"Chunk Vertex Buffer Allocated MB: {VertexBuffer<ChunkVertex>.Allocated / 1000000.0}");
-                        ImGui.Text($"ChunkMeshVersion Allocated: {ChunkMeshVersion.TotalAllocated}");
-                        ImGui.Text($"ChunkMeshVersion Released: {ChunkMeshVersion.TotalReleased}");
-
-                        terrainRenderer.chunkRenderer.GetMeshSizeStats(out int minSize, out int maxSize, out int avgSize, out Dictionary<int, int> buckets);
-                        ImGui.Separator();
-                        int activeMeshes = 0;
-                        foreach (int v in buckets.Values) activeMeshes += v;
-                        ImGui.Text($"Active Meshes: {activeMeshes}");
-                        ImGui.Text($"Min Mesh Size: {minSize} bytes");
-                        ImGui.Text($"Max Mesh Size: {maxSize} bytes");
-                        ImGui.Text($"Avg Mesh Size: {avgSize} bytes");
-                        if (ImGui.TreeNode("Mesh Size Buckets (KB)"))
+                    int savedWidth = DisplayWidth, savedHeight = DisplayHeight;
+                    if (imguiThisFrame)
+                    {
+                        Vector2 vpSize = _debugWindowManager.ViewportSize;
+                        if (vpSize.X > 0 && vpSize.Y > 0)
                         {
-                            var sortedBuckets = buckets.Keys.ToList();
-                            sortedBuckets.Sort();
-                            foreach (int po2 in sortedBuckets)
+                            int vpW = (int)vpSize.X, vpH = (int)vpSize.Y;
+                            if (_lastViewportSize != vpSize)
                             {
-                                ImGui.Text($"{po2}KB: {buckets[po2]} meshes");
+                                FramebufferManager.Resize(vpW, vpH);
+                                _lastViewportSize = vpSize;
                             }
-                            ImGui.TreePop();
-                        }
+                            DisplayWidth = vpW;
+                            DisplayHeight = vpH;
 
-                        if (ImGui.Button("Export Mesh Stats to JSON"))
+                            DebugViewportOffset = new Vector2(
+                                _debugWindowManager.ViewportPos.X,
+                                Display.getHeight() - vpH - _debugWindowManager.ViewportPos.Y);
+                            FramebufferManager.SkipBlit = true;
+                        }
+                        else
                         {
-                            var exportData = new
-                            {
-                                minSize,
-                                maxSize,
-                                avgSize,
-                                totalMeshes = activeMeshes,
-                                buckets = buckets.ToDictionary(k => k.Key.ToString(), v => v.Value)
-                            };
-                            string json = JsonSerializer.Serialize(exportData, new JsonSerializerOptions { WriteIndented = true });
-                            File.WriteAllText(Path.Combine(getBetaSharpDir(), "mesh_stats.json"), json);
-                            _logger.LogInformation($"Exported mesh stats to {Path.Combine(getBetaSharpDir(), "mesh_stats.json")}");
+                            DebugViewportOffset = Vector2.Zero;
+                            FramebufferManager.SkipBlit = false;
+                        }
+                    }
+                    else
+                    {
+                        DebugViewportOffset = Vector2.Zero;
+                        FramebufferManager.SkipBlit = false;
+                        if (_lastViewportSize != Vector2.Zero)
+                        {
+                            FramebufferManager.Resize(Display.getFramebufferWidth(), Display.getFramebufferHeight());
+                            _lastViewportSize = Vector2.Zero;
+                            _debugWindowManager.ViewportTextureId = 0;
+                        }
+                    }
+
+                    if (!SkipRenderWorld)
+                    {
+                        PlayerController?.setPartialTime(Timer.renderPartialTicks);
+
+                        TextureStats.StartFrame();
+
+                        using (Profiler.Begin("Render"))
+                        {
+                            GameRenderer.onFrameUpdate(Timer.renderPartialTicks);
                         }
 
-                        ImGui.Separator();
-                        ImGui.Text($"Texture Binds: {TextureStats.BindsLastFrame} (Avg: {TextureStats.AverageBindsPerFrame:F1}/f)");
-                        ImGui.Text($"Active Textures: {GLTexture.ActiveTextureCount}");
-                        ImGui.End();
+                        TextureStats.EndFrame();
+                        PushRenderMetrics();
+                    }
 
-                        imGuiController.Render();
+                    DisplayWidth = savedWidth;
+                    DisplayHeight = savedHeight;
+
+                    if (imguiThisFrame)
+                    {
+                        if (FramebufferManager.SkipBlit)
+                        {
+                            _debugWindowManager.ViewportTextureId = FramebufferManager.TextureId;
+                        }
+
+                        _debugWindowManager.Render(Timer.DeltaTime);
+
+                        ImGui.Render();
+                        ImGuiImplOpenGL3.RenderDrawData(ImGui.GetDrawData());
                     }
 
                     if (!Display.isActive())
                     {
-                        if (fullscreen)
-                        {
-                            toggleFullscreen();
-                        }
-
+                        if (_fullscreen) ToggleFullscreen();
                         Thread.Sleep(10);
                     }
 
-                    if (options.ShowDebugInfo)
-                    {
-                        displayDebugInfo(tickElapsedTime);
-                    }
-                    else
-                    {
-                        prevFrameTime = Stopwatch.GetTimestamp();
-                    }
-
-                    guiAchievement.updateAchievementWindow();
+                    _prevFrameTime = Stopwatch.GetTimestamp();
 
                     if (Keyboard.isKeyDown(Keyboard.KEY_F7))
                     {
                         Display.update();
                     }
 
-                    screenshotListener();
+                    ScreenshotListener();
 
                     if (Display.wasResized())
                     {
-                        displayWidth = Display.getWidth();
-                        displayHeight = Display.getHeight();
-                        if (displayWidth <= 0)
-                        {
-                            displayWidth = 1;
-                        }
-
-                        if (displayHeight <= 0)
-                        {
-                            displayHeight = 1;
-                        }
-
-                        resize(displayWidth, displayHeight);
+                        DisplayWidth = Display.getWidth();
+                        DisplayHeight = Display.getHeight();
+                        if (DisplayWidth <= 0) DisplayWidth = 1;
+                        if (DisplayHeight <= 0) DisplayHeight = 1;
+                        Resize(DisplayWidth, DisplayHeight);
                     }
 
-                    checkGLError("Post render");
+                    CheckGLError("Post render");
                     ++frameCounter;
 
-                    isGamePaused = (!isMultiplayerWorld() || internalServer != null) && (currentScreen?.PausesGame ?? false);
+                    IsGamePaused = (!IsMultiplayerWorld() || InternalServer != null) && (CurrentScreen?.PausesGame ?? false);
 
-                    for (;
-                         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
- >= lastFpsCheckTime + 1000L;
-                         frameCounter = 0)
+                    for (; DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() >= lastFpsCheckTime + 1000L; frameCounter = 0)
                     {
-                        debug = frameCounter + " fps";
+                        DebugText = frameCounter + " fps";
+                        MetricRegistry.Set(ClientMetrics.Fps, frameCounter);
                         lastFpsCheckTime += 1000L;
                     }
                 }
                 catch (OutOfMemoryException)
                 {
-                    crashCleanup();
-                    displayGuiScreen(new GuiErrorScreen());
+                    CrashCleanup();
+                    Navigate(new ErrorScreen(UIContext, "Out of memory!", "Minecraft has run out of memory."));
                 }
                 finally
                 {
-                    long frameEndNano = Stopwatch.GetTimestamp();
-                    double thisFrameTimeMs = (frameEndNano - frameStartNano) / 1000000.0;
-                    _debugTelemetry.RecordFrameTime(thisFrameTimeMs);
-
-                    if (options.DebugMode)
-                    {
-                        Profiler.Record("frame Time", thisFrameTimeMs);
-                        Profiler.CaptureFrame();
-                        Profiler.PopGroup();
-
-                        if (Display.isActive())
-                        {
-                            int endGcGen0 = GC.CollectionCount(0);
-                            int endGcGen1 = GC.CollectionCount(1);
-                            int endGcGen2 = GC.CollectionCount(2);
-
-                            int gc0Diff = endGcGen0 - startGcGen0;
-                            int gc1Diff = endGcGen1 - startGcGen1;
-                            int gc2Diff = endGcGen2 - startGcGen2;
-
-                            string gcContext = "";
-                            if (gc0Diff > 0 || gc1Diff > 0 || gc2Diff > 0)
-                            {
-                                gcContext = $"GC Collections this frame: Gen0[{gc0Diff}] Gen1[{gc1Diff}] Gen2[{gc2Diff}]";
-                            }
-
-                            int fpsLimit = 30 + (int)(options.LimitFramerate * 210.0f);
-                            double msPerFrameTarget = fpsLimit == 240 ? 16.666 : (1000.0 / fpsLimit);
-                            Profiler.LagSpikeThresholdMs = msPerFrameTarget * 2.0;
-                            Profiler.DetectLagSpike(thisFrameTimeMs, string.IsNullOrEmpty(gcContext) ? debug : $"{debug} - {gcContext}", true);
-                        }
-                    }
+                    ReportFrameTelemetry(frameStartNano);
                 }
             }
         }
-        catch (BetaSharpShutdownException) { }
+        catch (BetaSharpShutdownException)
+        {
+        }
         catch (Exception unexpectedException)
         {
-            crashCleanup();
-            onBetaSharpCrash(unexpectedException);
+            CrashCleanup();
+            OnGameCrash(unexpectedException);
         }
         finally
         {
-            ShutdownBetaSharpApplet();
+            ShutdownGame();
         }
     }
 
-    public void crashCleanup()
+    private void PushRenderMetrics()
     {
-        try
-        {
-            changeWorld(null);
-        }
-        catch (Exception)
-        {
-        }
+        if (WorldRenderer?.ChunkRenderer is not { } cr) return;
+        MetricRegistry.Set(RenderMetrics.ChunksTotal, cr.TotalChunks);
+        MetricRegistry.Set(RenderMetrics.ChunksFrustum, cr.ChunksInFrustum);
+        MetricRegistry.Set(RenderMetrics.ChunksOccluded, cr.ChunksOccluded);
+        MetricRegistry.Set(RenderMetrics.ChunksRendered, cr.ChunksRendered);
+        MetricRegistry.Set(RenderMetrics.VboAllocatedMb, (float)(VertexBuffer<ChunkVertex>.Allocated / 1_000_000.0));
+        MetricRegistry.Set(RenderMetrics.MeshVersionAllocated, ChunkMeshVersion.TotalAllocated);
+        MetricRegistry.Set(RenderMetrics.MeshVersionReleased, ChunkMeshVersion.TotalReleased);
+        MetricRegistry.Set(RenderMetrics.TextureBindsLastFrame, TextureStats.BindsLastFrame);
+        MetricRegistry.Set(RenderMetrics.TextureAvgBinds, (float)TextureStats.AverageBindsPerFrame);
+        MetricRegistry.Set(RenderMetrics.TextureActive, GLTexture.ActiveTextureCount);
+        MetricRegistry.Set(RenderMetrics.EntitiesRendered, WorldRenderer.CountEntitiesRendered);
+        MetricRegistry.Set(RenderMetrics.EntitiesHidden, WorldRenderer.CountEntitiesHidden);
+        MetricRegistry.Set(RenderMetrics.EntitiesTotal, WorldRenderer.CountEntitiesTotal);
     }
 
-    private void screenshotListener()
+    private void ReportFrameTelemetry(long frameStartNano)
     {
-        if (Keyboard.isKeyDown(Keyboard.KEY_F2))
+        long frameEndNano = Stopwatch.GetTimestamp();
+        double thisFrameTimeMs = (frameEndNano - frameStartNano) / 1000000.0;
+        _debugTelemetry.RecordFrameTime(thisFrameTimeMs);
+        MetricRegistry.Set(ClientMetrics.FrameTimeMs, (float)thisFrameTimeMs);
+
+        Profiler.Record("FrameTime", thisFrameTimeMs);
+        Profiler.CaptureFrame();
+    }
+
+    #endregion
+
+    #region Tick Logic
+
+    public void RunTick(float partialTicks)
+    {
+        using Profiler.ProfilerScope _tick = Profiler.Begin("Tick");
+
+        using (Profiler.Begin("SyncStats"))
         {
-            if (!isTakingScreenshot)
+            StatFileWriter.SyncStatsIfReady();
+        }
+
+        bool f11Down = Keyboard.isKeyDown(Keyboard.KEY_F11);
+        if (f11Down && !_prevF11Down)
+        {
+            ToggleFullscreen();
+        }
+        _prevF11Down = f11Down;
+
+        // F3 uses edge detection so it works even when
+        // CurrentScreen.HandleInput() has already consumed all keyboard events.
+        bool f3Down = Keyboard.isKeyDown(Keyboard.KEY_F3);
+        if (f3Down && !_prevF3Down && !ImGuiInput.CapturingKeyboard)
+        {
+            Options.ShowDebugInfo = !Options.ShowDebugInfo;
+        }
+        _prevF3Down = f3Down;
+
+        ControllerManager.UpdateGlobal();
+
+        if (!InGameHasFocus && World == null && InternalServer == null)
+        {
+            if (Options.MenuMusic)
             {
-                isTakingScreenshot = true;
-                int size = displayWidth * displayHeight * 3;
-                byte[] pixels = new byte[size];
-                GLManager.GL.PixelStore(PixelStoreParameter.PackAlignment, 1);
-                unsafe
-                {
-                    fixed (byte* p = pixels)
-                    {
-                        GLManager.GL.ReadPixels(0, 0, (uint)displayWidth, (uint)displayHeight, PixelFormat.Rgb, PixelType.UnsignedByte, p);
-                    }
-                }
-                string result = ScreenShotHelper.saveScreenshot(gameDataDir, displayWidth, displayHeight, pixels);
-                ingameGUI.addChatMessage(result);
-            }
-        }
-        else
-        {
-            isTakingScreenshot = false;
-        }
-    }
-
-    private void displayDebugInfo(long tickElapsedTime)
-    {
-        long targetFrameTime = 16666666L;
-        if (prevFrameTime == -1L)
-        {
-            prevFrameTime = Stopwatch.GetTimestamp();
-        }
-
-        long currentNanoTime = Stopwatch.GetTimestamp();
-        tickTimes[numRecordedFrameTimes & frameTimes.Length - 1] = tickElapsedTime;
-        frameTimes[numRecordedFrameTimes++ & frameTimes.Length - 1] = currentNanoTime - prevFrameTime;
-        prevFrameTime = currentNanoTime;
-        GLManager.GL.Clear(ClearBufferMask.DepthBufferBit);
-        GLManager.GL.MatrixMode(GLEnum.Projection);
-        GLManager.GL.LoadIdentity();
-        GLManager.GL.Ortho(0.0D, (double)displayWidth, (double)displayHeight, 0.0D, 1000.0D, 3000.0D);
-        GLManager.GL.MatrixMode(GLEnum.Modelview);
-        GLManager.GL.LoadIdentity();
-        GLManager.GL.Translate(0.0F, 0.0F, -2000.0F);
-        GLManager.GL.LineWidth(1.0F);
-        GLManager.GL.Disable(GLEnum.Texture2D);
-        Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawing(7);
-        int barHeightPixels = (int)(targetFrameTime / 200000L);
-        tessellator.setColorOpaque_I(0x20000000); // BUG: tries to set alpha, which is ignored by setColorOpaque_I
-        tessellator.addVertex(0.0D, (double)(displayHeight - barHeightPixels), 0.0D);
-        tessellator.addVertex(0.0D, (double)displayHeight, 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)displayHeight, 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)(displayHeight - barHeightPixels), 0.0D);
-        tessellator.setColorOpaque_I(0x20200000); // BUG: tries to set alpha, which is ignored by setColorOpaque_I
-        tessellator.addVertex(0.0D, (double)(displayHeight - barHeightPixels * 2), 0.0D);
-        tessellator.addVertex(0.0D, (double)(displayHeight - barHeightPixels), 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)(displayHeight - barHeightPixels), 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)(displayHeight - barHeightPixels * 2), 0.0D);
-        tessellator.draw();
-        long totalFrameTimesSum = 0L;
-
-        int averageFrameTimePixels;
-        for (averageFrameTimePixels = 0; averageFrameTimePixels < frameTimes.Length; ++averageFrameTimePixels)
-        {
-            totalFrameTimesSum += frameTimes[averageFrameTimePixels];
-        }
-
-        averageFrameTimePixels = (int)(totalFrameTimesSum / 200000L / (long)frameTimes.Length);
-        tessellator.startDrawing(7);
-        tessellator.setColorOpaque_I(0x20400000); // BUG: tries to set alpha, which is ignored by setColorOpaque_I
-        tessellator.addVertex(0.0D, (double)(displayHeight - averageFrameTimePixels), 0.0D);
-        tessellator.addVertex(0.0D, (double)displayHeight, 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)displayHeight, 0.0D);
-        tessellator.addVertex((double)frameTimes.Length, (double)(displayHeight - averageFrameTimePixels), 0.0D);
-        tessellator.draw();
-        tessellator.startDrawing(1);
-
-        for (int frameIndex = 0; frameIndex < frameTimes.Length; ++frameIndex)
-        {
-            int colorBrightnessPercent = (frameIndex - numRecordedFrameTimes & frameTimes.Length - 1) * 255 / frameTimes.Length;
-            int colorBrightness = colorBrightnessPercent * colorBrightnessPercent / 255;
-            colorBrightness = colorBrightness * colorBrightness / 255;
-            int colorValue = colorBrightness * colorBrightness / 255;
-            colorValue = colorValue * colorValue / 255;
-            if (frameTimes[frameIndex] > targetFrameTime)
-            {
-                tessellator.setColorOpaque_I(unchecked((int)(0xFF000000u + (uint)colorBrightness * 65536u)));
+                SoundManager.PlayRandomMusicIfReady(DefaultMusicCategories.Menu);
             }
             else
             {
-                tessellator.setColorOpaque_I(unchecked((int)(0xFF000000u + (uint)colorBrightness * 256u)));
-            }
-
-            long frameTimePixels = frameTimes[frameIndex] / 200000L;
-            long tickTimePixels = tickTimes[frameIndex] / 200000L;
-            tessellator.addVertex((double)((float)frameIndex + 0.5F), (double)((float)((long)displayHeight - frameTimePixels) + 0.5F),
-                0.0D);
-            tessellator.addVertex((double)((float)frameIndex + 0.5F), (double)((float)displayHeight + 0.5F), 0.0D);
-            tessellator.setColorOpaque_I(unchecked((int)(0xFF000000u + (uint)colorBrightness * 65536u + (uint)colorBrightness * 256u + (uint)colorBrightness * 1u)));
-            tessellator.addVertex((double)((float)frameIndex + 0.5F), (double)((float)((long)displayHeight - frameTimePixels) + 0.5F),
-                0.0D);
-            tessellator.addVertex((double)((float)frameIndex + 0.5F),
-                (double)((float)((long)displayHeight - (frameTimePixels - tickTimePixels)) + 0.5F), 0.0D);
-        }
-
-        tessellator.draw();
-        GLManager.GL.Enable(GLEnum.Texture2D);
-    }
-
-    public void shutdown()
-    {
-        running = false;
-    }
-
-    public void setIngameFocus()
-    {
-        if (Display.isActive())
-        {
-            if (!inGameHasFocus)
-            {
-                GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
-                inGameHasFocus = true;
-                mouseHelper.grabMouseCursor();
-                displayGuiScreen((GuiScreen)null);
-                leftClickCounter = 10000;
-                MouseTicksRan = TicksRan + 10000;
-            }
-        }
-    }
-
-    public void stopInternalServer()
-    {
-        if (internalServer != null)
-        {
-            internalServer.Stop();
-            while (!internalServer.stopped)
-            {
-                Thread.Sleep(1);
-            }
-            internalServer = null;
-        }
-    }
-
-    public void setIngameNotInFocus()
-    {
-        if (inGameHasFocus)
-        {
-            player?.resetPlayerKeyState();
-
-            inGameHasFocus = false;
-            GCSettings.LatencyMode = GCLatencyMode.Batch;
-            mouseHelper.ungrabMouseCursor();
-            Mouse.setCursorVisible(!isControllerMode);
-        }
-    }
-
-    public void displayInGameMenu()
-    {
-        if (currentScreen == null)
-        {
-            displayGuiScreen(new GuiIngameMenu());
-        }
-    }
-
-    private void func_6254_a(int mouseButton, bool isHoldingMouse)
-    {
-        if (!playerController.IsTestPlayer)
-        {
-            if (!isHoldingMouse)
-            {
-                leftClickCounter = 0;
-            }
-
-            if (mouseButton != 0 || leftClickCounter <= 0)
-            {
-                if (isHoldingMouse && objectMouseOver.Type != HitResultType.MISS && objectMouseOver.Type == HitResultType.TILE &&
-                    mouseButton == 0)
-                {
-                    int blockX = objectMouseOver.BlockX;
-                    int blockY = objectMouseOver.BlockY;
-                    int blockZ = objectMouseOver.BlockZ;
-                    playerController.sendBlockRemoving(blockX, blockY, blockZ, objectMouseOver.Side);
-                    particleManager.addBlockHitEffects(blockX, blockY, blockZ, objectMouseOver.Side);
-                }
-                else
-                {
-                    playerController.resetBlockRemoving();
-                }
-            }
-        }
-    }
-
-    public void ClickMouse(int mouseButton)
-    {
-        if (mouseButton != 0 || leftClickCounter <= 0)
-        {
-            if (mouseButton == 0)
-            {
-                player.swingHand();
-            }
-
-            bool shouldPerformSecondaryAction = true;
-            if (objectMouseOver.Type == HitResultType.MISS)
-            {
-                if (mouseButton == 0)
-                {
-                    leftClickCounter = 10;
-                }
-            }
-            else if (objectMouseOver.Type == HitResultType.ENTITY)
-            {
-                if (mouseButton == 0)
-                {
-                    playerController.attackEntity(player, objectMouseOver.Entity);
-                }
-
-                if (mouseButton == 1)
-                {
-                    playerController.interactWithEntity(player, objectMouseOver.Entity);
-                }
-            }
-            else if (objectMouseOver.Type == HitResultType.TILE)
-            {
-                int blockX = objectMouseOver.BlockX;
-                int blockY = objectMouseOver.BlockY;
-                int blockZ = objectMouseOver.BlockZ;
-                int blockSide = objectMouseOver.Side;
-                if (mouseButton == 0)
-                {
-                    playerController.clickBlock(blockX, blockY, blockZ, objectMouseOver.Side);
-                }
-                else
-                {
-                    ItemStack selectedItem = player.inventory.getSelectedItem();
-                    int itemCountBefore = selectedItem != null ? selectedItem.count : 0;
-                    if (playerController.sendPlaceBlock(player, world, selectedItem, blockX, blockY, blockZ, blockSide))
-                    {
-                        shouldPerformSecondaryAction = false;
-                        player.swingHand();
-                    }
-
-                    if (selectedItem == null)
-                    {
-                        return;
-                    }
-
-                    if (selectedItem.count == 0)
-                    {
-                        player.inventory.main[player.inventory.selectedSlot] = null;
-                    }
-                    else if (selectedItem.count != itemCountBefore)
-                    {
-                        gameRenderer.itemRenderer.func_9449_b();
-                    }
-                }
-            }
-
-            if (shouldPerformSecondaryAction && mouseButton == 1)
-            {
-                ItemStack selectedItem = player.inventory.getSelectedItem();
-                if (selectedItem != null && playerController.sendUseItem(player, world, selectedItem))
-                {
-                    gameRenderer.itemRenderer.func_9450_c();
-                }
-            }
-        }
-    }
-
-    public void toggleFullscreen()
-    {
-        try
-        {
-            fullscreen = !fullscreen;
-            if (fullscreen)
-            {
-                tempDisplayWidth = displayWidth;
-                tempDisplayHeight = displayHeight;
-
-                Display.setDisplayMode(Display.getDesktopDisplayMode());
-                Display.setFullscreen(true);
-                displayWidth = Display.getDisplayMode().getWidth();
-                displayHeight = Display.getDisplayMode().getHeight();
-                if (displayWidth <= 0)
-                {
-                    displayWidth = 1;
-                }
-
-                if (displayHeight <= 0)
-                {
-                    displayHeight = 1;
-                }
-            }
-            else
-            {
-                Display.setFullscreen(false);
-                if (tempDisplayWidth > 0 && tempDisplayHeight > 0)
-                {
-                    Display.setDisplayMode(new DisplayMode(tempDisplayWidth, tempDisplayHeight));
-                    displayWidth = tempDisplayWidth;
-                    displayHeight = tempDisplayHeight;
-                }
-                else
-                {
-                    Display.setDisplayMode(new DisplayMode(854, 480));
-                    displayWidth = 854;
-                    displayHeight = 480;
-                }
-
-                if (displayWidth <= 0)
-                {
-                    displayWidth = 1;
-                }
-
-                if (displayHeight <= 0)
-                {
-                    displayHeight = 1;
-                }
-
-                // Center the window
-                DisplayMode desktopMode = Display.getDesktopDisplayMode();
-                int centerX = (desktopMode.getWidth() - displayWidth) / 2;
-                int centerY = (desktopMode.getHeight() - displayHeight) / 2;
-                Display.setLocation(centerX, centerY);
-            }
-
-            if (currentScreen != null)
-            {
-                resize(displayWidth, displayHeight);
-            }
-
-            Display.update();
-        }
-        catch (Exception displayException)
-        {
-            _logger.LogError(displayException.ToString());
-        }
-    }
-
-    private void resize(int newWidth, int newHeight)
-    {
-        if (newWidth <= 0)
-        {
-            newWidth = 1;
-        }
-
-        if (newHeight <= 0)
-        {
-            newHeight = 1;
-        }
-
-        displayWidth = newWidth;
-        displayHeight = newHeight;
-        Mouse.setDisplayDimensions(displayWidth, displayHeight);
-
-        if (currentScreen != null)
-        {
-            ScaledResolution scaledResolution = new(options, newWidth, newHeight);
-            int scaledWidth = scaledResolution.ScaledWidth;
-            int scaledHeight = scaledResolution.ScaledHeight;
-            currentScreen.SetWorldAndResolution(this, scaledWidth, scaledHeight);
-        }
-
-        PostProcessManager.Resize(displayWidth, displayHeight);
-    }
-
-    public void ClickMiddleMouseButton()
-    {
-        if (objectMouseOver.Type != HitResultType.MISS)
-        {
-            int blockId = world.getBlockId(objectMouseOver.BlockX, objectMouseOver.BlockY, objectMouseOver.BlockZ);
-            if (blockId == Block.GrassBlock.id)
-            {
-                blockId = Block.Dirt.id;
-            }
-
-            if (blockId == Block.DoubleSlab.id)
-            {
-                blockId = Block.Slab.id;
-            }
-
-            if (blockId == Block.Bedrock.id)
-            {
-                blockId = Block.Stone.id;
-            }
-
-            player.inventory.setCurrentItem(blockId, false);
-        }
-    }
-
-    public void runTick(float partialTicks)
-    {
-        Profiler.PushGroup("runTick");
-
-        Profiler.Start("statFileWriter.SyncStatsIfReady");
-        statFileWriter.SyncStatsIfReady();
-        Profiler.Stop("statFileWriter.SyncStatsIfReady");
-
-        if (!inGameHasFocus && world == null && internalServer == null)
-        {
-            if (options.MenuMusic)
-            {
-                sndManager.PlayRandomMusicIfReady(DefaultMusicCategories.Menu);
-            }
-            else
-            {
-                sndManager.StopMusic(DefaultMusicCategories.Menu);
+                SoundManager.StopMusic(DefaultMusicCategories.Menu);
             }
         }
 
-
-
-        Profiler.Start("ingameGUI.updateTick");
-        ingameGUI.updateTick();
-        Profiler.Stop("ingameGUI.updateTick");
-        gameRenderer.UpdateTargetedEntity(1.0F);
-
-        gameRenderer.tick(partialTicks);
-
-        Profiler.Start("chunkProviderLoadOrGenerateSetCurrentChunkOver");
-
-        Profiler.Stop("chunkProviderLoadOrGenerateSetCurrentChunkOver");
-
-        Profiler.Start("playerControllerUpdate");
-        if (!isGamePaused && world != null)
+        using (Profiler.Begin("UpdateHud"))
         {
-            playerController.updateController();
+            HUD.Update(1.0f);
         }
 
-        Profiler.Stop("playerControllerUpdate");
+        GameRenderer.UpdateTargetedEntity(1.0F);
+        GameRenderer.tick(partialTicks);
 
-        Profiler.Start("updateDynamicTextures");
-        textureManager.BindTexture(textureManager.GetTextureId("/terrain.png"));
-        if (!isGamePaused)
+        using (Profiler.Begin("UpdatePlayerController"))
         {
-            textureManager.Tick();
-        }
-
-        Profiler.Stop("updateDynamicTextures");
-
-        if (currentScreen == null && player != null)
-        {
-            if (player.health <= 0)
+            if (!IsGamePaused && World != null)
             {
-                displayGuiScreen((GuiScreen)null);
-            }
-            else if (player.isSleeping() && world != null && world.isRemote)
-            {
-                displayGuiScreen(new GuiSleepMP());
+                PlayerController.updateController();
             }
         }
-        else if (currentScreen != null && currentScreen is GuiSleepMP && !player.isSleeping())
+
+        using (Profiler.Begin("UpdateDynamicTextures"))
         {
-            displayGuiScreen((GuiScreen)null);
+            TextureManager.BindTexture(TextureManager.GetTextureId("/terrain.png"));
+            if (!IsGamePaused)
+            {
+                TextureManager.Tick();
+            }
         }
 
-        if (currentScreen != null)
+        if (CurrentScreen == null && Player != null)
         {
-            leftClickCounter = 10000;
+            if (Player.health <= 0)
+            {
+                Navigate(null);
+            }
+            else if (Player.isSleeping() && World != null && World.IsRemote)
+            {
+                Navigate(new SleepScreen(UIContext, Player));
+            }
+        }
+        else if (CurrentScreen is SleepScreen && !Player.isSleeping())
+        {
+            Navigate(null);
+        }
+
+        if (CurrentScreen != null)
+        {
+            _leftClickCounter = 10000;
             MouseTicksRan = TicksRan + 10000;
         }
 
-        if (currentScreen != null)
+        if (CurrentScreen != null)
         {
-            currentScreen.HandleInput();
-            if (currentScreen != null)
-            {
-                currentScreen.ParticlesGui.updateParticles();
-                currentScreen.UpdateScreen();
-            }
+            CurrentScreen.HandleInput();
+            CurrentScreen?.Update(1.0f);
         }
 
-        if (currentScreen == null || currentScreen.AllowUserInput)
+        if (CurrentScreen == null || CurrentScreen.AllowUserInput)
         {
-            processInputEvents();
+            ProcessInputEvents();
         }
 
-        if (world != null)
+        if (World != null)
         {
-            if (player != null)
+            if (Player != null)
             {
-                ++joinPlayerCounter;
-                if (joinPlayerCounter == 30)
+                ++_joinPlayerCounter;
+                if (_joinPlayerCounter == 30)
                 {
-                    joinPlayerCounter = 0;
-                    world.LoadChunksNearEntity(player);
+                    _joinPlayerCounter = 0;
+                    World.Entities.LoadChunksNearEntity(Player);
                 }
             }
 
-            world.difficulty = options.Difficulty;
-            if (internalServer != null)
+            World.SetDifficulty(Options.Difficulty);
+            InternalServer?.SetDifficulty(Options.Difficulty);
+
+            if (World.IsRemote)
             {
-                internalServer.SetDifficulty(options.Difficulty);
+                World.SetDifficulty(3);
             }
 
-            if (world.isRemote)
+            using (Profiler.Begin("UpdateEntityRenderer"))
             {
-                world.difficulty = 3;
-            }
-
-            Profiler.Start("entityRendererUpdate");
-            if (!isGamePaused)
-            {
-                gameRenderer.updateCamera();
-            }
-
-            Profiler.Stop("entityRendererUpdate");
-
-            if (!isGamePaused)
-            {
-                terrainRenderer.updateClouds();
-            }
-
-            Profiler.PushGroup("theWorldUpdateEntities");
-            if (!isGamePaused)
-            {
-                if (world.lightningTicksLeft > 0)
+                if (!IsGamePaused)
                 {
-                    --world.lightningTicksLeft;
+                    GameRenderer.updateCamera();
                 }
-
-                world.tickEntities();
             }
 
-            Profiler.PopGroup();
-
-            Profiler.PushGroup("theWorld.tick");
-            if (!isGamePaused || (isMultiplayerWorld() && internalServer == null))
+            if (!IsGamePaused)
             {
-                world.allowSpawning(options.Difficulty > 0, true);
-                world.Tick();
+                WorldRenderer.UpdateClouds();
             }
 
-            Profiler.PopGroup();
-
-            if (!isGamePaused && world != null)
+            using (Profiler.Begin("TickEntities"))
             {
-                world.displayTick(MathHelper.Floor(player.x),
-                    MathHelper.Floor(player.y), MathHelper.Floor(player.z));
+                if (!IsGamePaused)
+                {
+                    if (World.Environment.LightningTicksLeft > 0)
+                    {
+                        --World.Environment.LightningTicksLeft;
+                    }
+                    World.Entities.TickEntities();
+                }
             }
 
-            if (!isGamePaused)
+            using (Profiler.Begin("TickWorld"))
             {
-                particleManager.updateEffects();
+                if (!IsGamePaused || (IsMultiplayerWorld() && InternalServer == null))
+                {
+                    World.allowSpawning(Options.Difficulty > 0, true);
+                    World.Tick();
+                }
+            }
+
+            if (!IsGamePaused && World != null)
+            {
+                World.displayTick(MathHelper.Floor(Player.x), MathHelper.Floor(Player.y), MathHelper.Floor(Player.z));
+            }
+
+            if (!IsGamePaused)
+            {
+                ParticleManager.updateEffects();
             }
         }
 
-        systemTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-;
-        Profiler.PopGroup();
+        _systemTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
-    private void processInputEvents()
+    #endregion
+
+    #region Input Handling
+
+    private void ProcessInputEvents()
     {
         while (Mouse.next())
         {
-            long timeSinceLastMouseEvent = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
- - systemTime;
+            long timeSinceLastMouseEvent = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _systemTime;
+
             if (Mouse.getEventDX() != 0 || Mouse.getEventDY() != 0)
             {
-                isControllerMode = false;
+                IsControllerMode = false;
                 Mouse.setCursorVisible(true);
             }
 
@@ -1442,30 +987,41 @@ public partial class BetaSharp
                 int mouseWheelDelta = Mouse.getEventDWheel();
                 if (mouseWheelDelta != 0)
                 {
-                    isControllerMode = false;
+                    IsControllerMode = false;
                     Mouse.setCursorVisible(true);
-                    player.inventory.changeCurrentItem(mouseWheelDelta);
-                    if (options.InvertScrolling)
+
+                    bool zoomHeld = CurrentScreen == null && InGameHasFocus && Keyboard.isKeyDown(Options.KeyBindZoom.keyCode);
+                    if (zoomHeld)
                     {
-                        if (mouseWheelDelta > 0)
+                        int mouseWheelDirection = mouseWheelDelta > 0 ? 1 : -1;
+                        if (mouseWheelDirection > 0)
                         {
-                            mouseWheelDelta = 1;
+                            Options.ZoomScale *= 1.08F;
+                        }
+                        else
+                        {
+                            Options.ZoomScale /= 1.08F;
                         }
 
-                        if (mouseWheelDelta < 0)
+                        Options.ZoomScale = System.Math.Clamp(Options.ZoomScale, 1.25F, 20.0F);
+                    }
+                    else
+                    {
+                        Player.inventory.changeCurrentItem(mouseWheelDelta);
+                        if (Options.InvertScrolling)
                         {
-                            mouseWheelDelta = -1;
+                            if (mouseWheelDelta > 0) mouseWheelDelta = 1;
+                            if (mouseWheelDelta < 0) mouseWheelDelta = -1;
+                            Options.AmountScrolled += (float)mouseWheelDelta * 0.25F;
                         }
-
-                        options.AmountScrolled += (float)mouseWheelDelta * 0.25F;
                     }
                 }
 
-                if (currentScreen == null)
+                if (CurrentScreen == null)
                 {
-                    if (!inGameHasFocus && Mouse.getEventButtonState())
+                    if (!InGameHasFocus && Mouse.getEventButtonState())
                     {
-                        setIngameFocus();
+                        SetIngameFocus();
                     }
                     else
                     {
@@ -1489,256 +1045,657 @@ public partial class BetaSharp
                 }
                 else
                 {
-                    currentScreen?.HandleMouseInput();
+                    CurrentScreen?.HandleMouseInput();
                 }
             }
         }
 
-        if (leftClickCounter > 0)
+        if (_leftClickCounter > 0)
         {
-            --leftClickCounter;
+            --_leftClickCounter;
         }
 
         while (Keyboard.Next())
         {
-            player.handleKeyPress(Keyboard.getEventKey(), Keyboard.getEventKeyState());
+            // Block key-down events when ImGui has keyboard focus.
+            if (ImGuiInput.CapturingKeyboard)
+            {
+                continue;
+            }
+
+            Player?.handleKeyPress(Keyboard.getEventKey(), Keyboard.getEventKeyState());
 
             if (Keyboard.getEventKeyState())
             {
-                if (Keyboard.getEventKey() == Keyboard.KEY_F11)
+                if (CurrentScreen != null)
                 {
-                    toggleFullscreen();
+                    CurrentScreen.HandleKeyboardInput();
                 }
                 else
                 {
-                    if (currentScreen != null)
+                    if (Keyboard.getEventKey() == Keyboard.KEY_ESCAPE) DisplayInGameMenu();
+
+                    if (Keyboard.getEventKey() == Keyboard.KEY_S && Keyboard.isKeyDown(Keyboard.KEY_F3))
                     {
-                        currentScreen.HandleKeyboardInput();
-                    }
-                    else
-                    {
-                        if (Keyboard.getEventKey() == Keyboard.KEY_ESCAPE)
-                        {
-                            displayInGameMenu();
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_S && Keyboard.isKeyDown(Keyboard.KEY_F3))
-                        {
-                            forceReload();
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_D && Keyboard.isKeyDown(Keyboard.KEY_F3))
-                        {
-                            ingameGUI.clearChatMessages();
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_C && Keyboard.isKeyDown(Keyboard.KEY_F3))
-                        {
-                            throw new Exception("Simulated crash triggered by pressing F3 + C");
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_F1)
-                        {
-                            options.HideGUI = !options.HideGUI;
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_F3)
-                        {
-                            options.ShowDebugInfo = !options.ShowDebugInfo;
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_F5)
-                        {
-                            options.CameraMode = (EnumCameraMode)((int)(options.CameraMode + 2) % 3);
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_F8)
-                        {
-                            options.SmoothCamera = !options.SmoothCamera;
-                        }
-
-                        if (Keyboard.getEventKey() == Keyboard.KEY_F7)
-                        {
-                            ShowChunkBorders = !ShowChunkBorders;
-                        }
-
-                        if (Keyboard.getEventKey() == options.KeyBindInventory.keyCode)
-                        {
-                            displayGuiScreen(new GuiInventory(player));
-                        }
-
-                        if (Keyboard.getEventKey() == options.KeyBindDrop.keyCode)
-                        {
-                            player.dropSelectedItem();
-                        }
-
-                        if (Keyboard.getEventKey() == options.KeyBindChat.keyCode)
-                        {
-                            displayGuiScreen(new GuiChat());
-                        }
-
-                        if (Keyboard.getEventKey() == options.KeyBindCommand.keyCode)
-                        {
-                            displayGuiScreen(new GuiChat("/"));
-                        }
+                        ForceReload();
                     }
 
-                    for (int slotIndex = 0; slotIndex < 9; ++slotIndex)
+                    if (Keyboard.getEventKey() == Keyboard.KEY_H && Keyboard.isKeyDown(Keyboard.KEY_F3))
                     {
-                        if (Keyboard.getEventKey() == Keyboard.KEY_1 + slotIndex)
-                        {
-                            player.inventory.selectedSlot = slotIndex;
-                        }
+                        Options.AdvancedItemTooltips = !Options.AdvancedItemTooltips;
+                        Options.SaveOptions();
                     }
 
-                    if (Keyboard.getEventKey() == options.KeyBindToggleFog.keyCode)
+                    if (Keyboard.getEventKey() == Keyboard.KEY_D && Keyboard.isKeyDown(Keyboard.KEY_F3))
                     {
-                        options.RenderDistanceOption.Value = System.Math.Clamp(options.RenderDistanceOption.Value + (!Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) && !Keyboard.isKeyDown(Keyboard.KEY_RSHIFT) ? 1.0f / 28.0f : -1.0f / 28.0f), 0.0f, 1.0f);
+                        HUD.Chat.ClearMessages();
                     }
+
+                    if (Keyboard.getEventKey() == Keyboard.KEY_C && Keyboard.isKeyDown(Keyboard.KEY_F3))
+                    {
+                        throw new Exception("Simulated crash triggered by pressing F3 + C");
+                    }
+
+                    if (Keyboard.getEventKey() == Keyboard.KEY_F1) Options.HideGUI = !Options.HideGUI;
+
+                    if (Keyboard.getEventKey() == Keyboard.KEY_F5)
+                    {
+                        Options.CameraMode = (EnumCameraMode)((int)(Options.CameraMode + 2) % 3);
+                    }
+
+                    if (Keyboard.getEventKey() == Keyboard.KEY_F8) Options.SmoothCamera = !Options.SmoothCamera;
+                    if (Keyboard.getEventKey() == Keyboard.KEY_F7) ShowChunkBorders = !ShowChunkBorders;
+
+                    if (Keyboard.getEventKey() == Options.KeyBindInventory.keyCode)
+                    {
+                        Navigate(new InventoryScreen(UIContext, Player, PlayerController, () => CurrentScreen));
+                    }
+
+                    if (Keyboard.getEventKey() == Options.KeyBindDrop.keyCode) Player.DropSelectedItem();
+
+                    if (Keyboard.getEventKey() == Options.KeyBindChat.keyCode)
+                    {
+                        Navigate(new ChatScreen(UIContext, HUD.Chat, Player));
+                    }
+
+                    if (Keyboard.getEventKey() == Options.KeyBindCommand.keyCode)
+                    {
+                        Navigate(new ChatScreen(UIContext, HUD.Chat, Player, "/"));
+                    }
+                }
+
+                for (int slotIndex = 0; slotIndex < 9; ++slotIndex)
+                {
+                    if (Keyboard.getEventKey() == Keyboard.KEY_1 + slotIndex)
+                    {
+                        Player.inventory.selectedSlot = slotIndex;
+                    }
+                }
+
+                if (Keyboard.getEventKey() == Options.KeyBindToggleFog.keyCode)
+                {
+                    Options.RenderDistanceOption.Value = System.Math.Clamp(
+                        Options.RenderDistanceOption.Value + (!Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) && !Keyboard.isKeyDown(Keyboard.KEY_RSHIFT) ? 1.0f / 28.0f : -1.0f / 28.0f),
+                        0.0f,
+                        1.0f);
                 }
             }
         }
 
 
-        ControllerManager.UpdateGui(currentScreen);
-
+        ControllerManager.UpdateUI(CurrentScreen);
         ControllerManager.UpdateInGame(Timer.renderPartialTicks);
 
-        if (currentScreen == null)
+        if (CurrentScreen == null)
         {
-            if (Mouse.isButtonDown(0) && (float)(TicksRan - MouseTicksRan) >= Timer.ticksPerSecond / 4.0F &&
-                inGameHasFocus)
+            if (Mouse.isButtonDown(0) && (float)(TicksRan - MouseTicksRan) >= Timer.ticksPerSecond / 4.0F && InGameHasFocus)
             {
                 ClickMouse(0);
                 MouseTicksRan = TicksRan;
             }
 
-            if (Mouse.isButtonDown(1) && (float)(TicksRan - MouseTicksRan) >= Timer.ticksPerSecond / 4.0F &&
-                inGameHasFocus)
+            if (Mouse.isButtonDown(1) && (float)(TicksRan - MouseTicksRan) >= Timer.ticksPerSecond / 4.0F && InGameHasFocus)
             {
                 ClickMouse(1);
                 MouseTicksRan = TicksRan;
             }
         }
 
-        func_6254_a(0, currentScreen == null && (Mouse.isButtonDown(0) || Controller.RightTrigger > 0.5f) && inGameHasFocus);
+        UpdateHeldMouseButton(0, CurrentScreen == null && (Mouse.isButtonDown(0) || Controller.RightTrigger > 0.5f) && InGameHasFocus);
     }
 
-    private void forceReload()
+    public void ClickMouse(int mouseButton)
     {
-        _logger.LogInformation("FORCING RELOAD!");
-        sndManager = new SoundManager();
-        sndManager.LoadSoundSettings(options);
-        DefaultMusicCategories.Register(sndManager);
+        if (mouseButton != 0 || _leftClickCounter <= 0)
+        {
+            if (mouseButton == 0)
+            {
+                Player.swingHand();
+            }
+
+            bool shouldPerformSecondaryAction = true;
+            if (ObjectMouseOver.Type == HitResultType.MISS)
+            {
+                if (mouseButton == 0)
+                {
+                    _leftClickCounter = 10;
+                }
+            }
+            else if (ObjectMouseOver.Type == HitResultType.ENTITY)
+            {
+                if (mouseButton == 0)
+                {
+                    PlayerController.attackEntity(Player, ObjectMouseOver.Entity);
+                }
+
+                if (mouseButton == 1)
+                {
+                    PlayerController.interactWithEntity(Player, ObjectMouseOver.Entity);
+                }
+            }
+            else if (ObjectMouseOver.Type == HitResultType.TILE)
+            {
+                int blockX = ObjectMouseOver.BlockX;
+                int blockY = ObjectMouseOver.BlockY;
+                int blockZ = ObjectMouseOver.BlockZ;
+                int blockSide = ObjectMouseOver.Side;
+                if (mouseButton == 0)
+                {
+                    PlayerController.clickBlock(blockX, blockY, blockZ, ObjectMouseOver.Side);
+                }
+                else
+                {
+                    ItemStack selectedItem = Player.inventory.getSelectedItem();
+                    int itemCountBefore = selectedItem != null ? selectedItem.count : 0;
+                    if (PlayerController.sendPlaceBlock(Player, World, selectedItem, blockX, blockY, blockZ, blockSide))
+                    {
+                        shouldPerformSecondaryAction = false;
+                        Player.swingHand();
+                    }
+
+                    if (selectedItem == null)
+                    {
+                        return;
+                    }
+
+                    if (selectedItem.count == 0)
+                    {
+                        Player.inventory.main[Player.inventory.selectedSlot] = null;
+                    }
+                    else if (selectedItem.count != itemCountBefore)
+                    {
+                        GameRenderer.itemRenderer.ResetEquippedProgress();
+                    }
+                }
+            }
+
+            if (shouldPerformSecondaryAction && mouseButton == 1)
+            {
+                ItemStack selectedItem = Player.inventory.getSelectedItem();
+                if (selectedItem != null && PlayerController.sendUseItem(Player, World, selectedItem))
+                {
+                    GameRenderer.itemRenderer.ResetEquippedProgress();
+                }
+            }
+        }
     }
 
-    public bool isMultiplayerWorld()
+    public void ClickMiddleMouseButton()
     {
-        return world != null && world.isRemote;
+        if (ObjectMouseOver.Type != HitResultType.MISS)
+        {
+            int blockId = World.Reader.GetBlockId(ObjectMouseOver.BlockX, ObjectMouseOver.BlockY, ObjectMouseOver.BlockZ);
+
+            if (blockId == Block.GrassBlock.id) blockId = Block.Dirt.id;
+            if (blockId == Block.DoubleSlab.id) blockId = Block.Slab.id;
+            if (blockId == Block.Bedrock.id) blockId = Block.Stone.id;
+
+            Player.inventory.setCurrentItem(blockId, false);
+        }
     }
 
-    public void startWorld(string worldName, string mainMenuText, WorldSettings settings)
+    private void UpdateHeldMouseButton(int mouseButton, bool isHoldingMouse)
     {
-        changeWorld((World)null);
-        displayGuiScreen(new GuiLevelLoading(worldName, settings));
+        if (!PlayerController.IsTestPlayer)
+        {
+            if (!isHoldingMouse)
+            {
+                _leftClickCounter = 0;
+            }
+
+            if (mouseButton != 0 || _leftClickCounter <= 0)
+            {
+                if (isHoldingMouse && ObjectMouseOver.Type != HitResultType.MISS && ObjectMouseOver.Type == HitResultType.TILE &&
+                    mouseButton == 0)
+                {
+                    int blockX = ObjectMouseOver.BlockX;
+                    int blockY = ObjectMouseOver.BlockY;
+                    int blockZ = ObjectMouseOver.BlockZ;
+                    PlayerController.sendBlockRemoving(blockX, blockY, blockZ, ObjectMouseOver.Side);
+                    ParticleManager.addBlockHitEffects(blockX, blockY, blockZ, ObjectMouseOver.Side);
+                }
+                else
+                {
+                    PlayerController.resetBlockRemoving();
+                }
+            }
+        }
     }
 
-    public void changeWorld(World newWorld, string loadingText = "", EntityPlayer targetEntity = null)
-    {
-        statFileWriter.Tick();
-        statFileWriter.SyncStats();
-        camera = null;
-        loadingScreen.printText(loadingText);
-        loadingScreen.progressStage("");
-        sndManager.PlayStreaming(null!, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
+    #endregion
 
-        world = newWorld;
+    #region World & Server Operations
+
+    public void LoadWorld(string dir, string displayName, WorldSettings settings)
+    {
+        StatFileWriter.ReadStat(Stats.Stats.LoadWorldStat, 1);
+        PlayerController = new PlayerControllerSP(this);
+        StartWorld(dir, displayName, settings);
+    }
+
+    public void StartWorld(string worldName, string mainMenuText, WorldSettings settings)
+    {
+        ChangeWorld(null);
+        Navigate(new LevelLoadingScreen(UIContext, CreateNetworkContext(), worldName, settings, this));
+    }
+
+    public void ChangeWorld(World? newWorld, string loadingText = "", EntityPlayer? targetEntity = null)
+    {
+        StatFileWriter.Tick();
+        StatFileWriter.SyncStats();
+        _loadingScreen.BeginLoading(loadingText);
+        _loadingScreen.SetStage("");
+        SoundManager.PlayStreaming(null!, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
+
+        World = newWorld!;
         if (newWorld != null)
         {
-            playerController.func_717_a(newWorld);
-            if (!isMultiplayerWorld())
+            PlayerController.ChangeWorld(newWorld);
+            if (!IsMultiplayerWorld())
             {
                 if (targetEntity == null)
                 {
-                    player = (ClientPlayerEntity)newWorld.getPlayerForProxy(typeof(ClientPlayerEntity));
+                    Player = (ClientPlayerEntity?)newWorld.GetPlayerForProxy(typeof(ClientPlayerEntity));
                 }
             }
-            else if (player != null)
+            else if (Player != null)
             {
-                player.teleportToTop();
-                newWorld?.SpawnEntity(player);
+                Player.teleportToTop();
+                newWorld?.Entities.SpawnEntity(Player);
             }
 
-            if (player == null)
+            if (Player == null)
             {
-                player = (ClientPlayerEntity)playerController.createPlayer(newWorld);
-                player.teleportToTop();
-                playerController.flipPlayer(player);
+                Player = (ClientPlayerEntity)PlayerController.createPlayer(newWorld);
+                Player.teleportToTop();
+                PlayerController.flipPlayer(Player);
             }
 
-            player.movementInput = new MovementInputFromOptions(options);
-            terrainRenderer?.changeWorld(newWorld);
+            Player.movementInput = new MovementInputFromOptions(Options);
+            WorldRenderer?.ChangeWorld(newWorld);
+            ParticleManager?.clearEffects(newWorld);
 
-            particleManager?.clearEffects(newWorld);
-
-            playerController.fillHotbar(player);
+            PlayerController.fillHotbar(Player);
             if (targetEntity != null)
             {
-                newWorld.saveWorldData();
+                newWorld.SaveWorldData();
             }
 
-            newWorld.addPlayer(player);
+            newWorld.AddPlayer(Player);
+            SkinManager.RequestDownload(Player.name);
 
-            skinManager.RequestDownload(player.name);
-
-            if (newWorld.isNewWorld)
+            if (newWorld.IsNewWorld)
             {
-                newWorld.savingProgress(loadingScreen);
+                newWorld.SavingProgress(_loadingScreen);
             }
-
-            camera = player;
         }
         else
         {
-            player = null;
+            Player = null;
         }
 
-        systemTime = 0L;
+        _systemTime = 0L;
     }
 
-    private void showText(string loadingText)
+    public void Respawn(bool ignoreSpawnPosition, int newDimensionId)
     {
-        loadingScreen.printText(loadingText);
-        loadingScreen.progressStage("Building terrain");
+        Vec3i? playerSpawnPos = null;
+        Vec3i? respawnPos = null;
+
+        if (Player is not null && !ignoreSpawnPosition)
+        {
+            playerSpawnPos = Player.getSpawnPos();
+
+            if (playerSpawnPos is not null)
+            {
+                respawnPos = EntityPlayer.findRespawnPosition(World, playerSpawnPos);
+
+                if (respawnPos is null)
+                {
+                    Player.sendMessage("tile.bed.notValid");
+                }
+            }
+        }
+
+        bool useBedSpawn = respawnPos is not null;
+        Vec3i finalRespawnPos = respawnPos ?? World.Properties.GetSpawnPos();
+
+        World.UpdateSpawnPosition();
+        World.Entities.UpdateEntityLists();
+
+        int previousPlayerId = 0;
+
+        if (Player is not null)
+        {
+            previousPlayerId = Player.id;
+            World.Entities.Remove(Player);
+        }
+
+        Player = (ClientPlayerEntity)PlayerController.createPlayer(World);
+        Player.dimensionId = newDimensionId;
+        Player.teleportToTop();
+
+        if (useBedSpawn)
+        {
+            Player.setSpawnPos(playerSpawnPos);
+            Player.setPositionAndAnglesKeepPrevAngles(
+                finalRespawnPos.X + 0.5,
+                finalRespawnPos.Y + 0.1,
+                finalRespawnPos.Z + 0.5,
+                0.0F,
+                0.0F);
+        }
+
+        PlayerController.flipPlayer(Player);
+        World.AddPlayer(Player);
+        Player.movementInput = new MovementInputFromOptions(Options);
+        Player.id = previousPlayerId;
+        Player.spawn();
+        PlayerController.fillHotbar(Player);
+
+        ShowText("Respawning");
+
+        if (_isGameOverOpen)
+        {
+            Navigate(null);
+        }
+    }
+
+    public void StartInternalServer(string worldDir, WorldSettings worldSettings)
+    {
+        InternalServer = new InternalServer(Path.Combine(BetaSharpDir, "saves"), worldDir, worldSettings, Options.renderDistance, Options.Difficulty);
+        InternalServer.RunThreaded("Internal Server");
+    }
+
+    public void StopInternalServer()
+    {
+        if (InternalServer != null)
+        {
+            InternalServer.Stop();
+            while (!InternalServer.stopped)
+            {
+                Thread.Sleep(1);
+            }
+
+            InternalServer = null;
+        }
+    }
+
+    public bool IsMultiplayerWorld()
+    {
+        return World != null && World.IsRemote;
+    }
+
+    private void ShowText(string loadingText)
+    {
+        _loadingScreen.BeginLoading(loadingText);
+        _loadingScreen.SetStage("Building terrain");
         short loadingRadius = 128;
         int loadedChunkCount = 0;
         int totalChunksToLoad = loadingRadius * 2 / 16 + 1;
         totalChunksToLoad *= totalChunksToLoad;
-        Vec3i centerPos = world.getSpawnPos();
-        if (player != null)
+        Vec3i centerPos = World.Properties.GetSpawnPos();
+
+        if (Player != null)
         {
-            centerPos.X = (int)player.x;
-            centerPos.Z = (int)player.z;
+            centerPos.X = (int)Player.x;
+            centerPos.Z = (int)Player.z;
         }
 
         for (int xOffset = -loadingRadius; xOffset <= loadingRadius; xOffset += 16)
         {
             for (int zOffset = -loadingRadius; zOffset <= loadingRadius; zOffset += 16)
             {
-                loadingScreen.setLoadingProgress(loadedChunkCount++ * 100 / totalChunksToLoad);
-                world.getBlockId(centerPos.X + xOffset, 64, centerPos.Z + zOffset);
+                _loadingScreen.SetProgress(loadedChunkCount++ * 100 / totalChunksToLoad);
+                World.Reader.GetBlockId(centerPos.X + xOffset, 64, centerPos.Z + zOffset);
 
-                while (world.doLightingUpdates())
+                while (World.Lighting.DoLightingUpdates())
                 {
                 }
             }
         }
 
-        loadingScreen.progressStage("Simulating world for a bit");
-        world.tickChunks();
+        _loadingScreen.SetStage("Simulating world for a bit");
+        World.TickChunks();
     }
 
-    public void installResource(string resourcePath, FileInfo resourceFile)
+    #endregion
+
+    #region UI & Navigation
+
+    public void Navigate(UIScreen? newScreen)
+    {
+        Mouse.ClearEvents();
+        Controller.ClearEvents();
+        CurrentScreen?.Uninit();
+
+        if (newScreen is MainMenuScreen)
+        {
+            StatFileWriter.Tick();
+
+            if (InGameHasFocus)
+            {
+                SoundManager.StopCurrentMusic();
+            }
+        }
+
+        StatFileWriter.SyncStats();
+        if (newScreen == null && World == null)
+        {
+            newScreen = CreateMainMenuScreen();
+        }
+        else if (newScreen == null && Player.health <= 0)
+        {
+            newScreen = new GameOverScreen(UIContext, (int)Player.getScore(), Player.respawn, canRespawn: Session != null, exitToTitle: () => ChangeWorld(null!));
+        }
+
+        if (newScreen is MainMenuScreen)
+        {
+            HUD.Chat.ClearMessages();
+        }
+
+        CurrentScreen = newScreen;
+
+        if (CurrentScreen != null)
+        {
+            Vector2D<int> inputSizeForReset = UIContext.InputDisplaySize;
+            VirtualCursor.Reset(inputSizeForReset.X, inputSizeForReset.Y);
+        }
+
+        if (InternalServer != null)
+        {
+            bool shouldPause = newScreen?.PausesGame ?? false;
+            InternalServer.SetPaused(shouldPause);
+        }
+
+        if (newScreen != null)
+        {
+            SetIngameNotInFocus();
+            newScreen.Initialize();
+            SkipRenderWorld = false;
+        }
+        else
+        {
+            SetIngameFocus();
+            SoundManager.StopMusic(DefaultMusicCategories.Menu);
+        }
+    }
+
+    public void DisplayInGameMenu()
+    {
+        if (CurrentScreen == null)
+        {
+            bool isMP = IsMultiplayerWorld() && InternalServer == null;
+            string quitText = isMP ? "Disconnect" : "Save and quit to title";
+            int saveStep = 0;
+            Navigate(new IngameMenuScreen(UIContext, StatFileWriter, SetIngameFocus, quitText, () =>
+            {
+                if (IsMultiplayerWorld()) World.Disconnect();
+                StopInternalServer();
+                ChangeWorld(null);
+            }, () => World?.AttemptSaving(saveStep++) ?? false));
+        }
+    }
+
+    public void SetIngameFocus()
+    {
+        if (Display.isActive())
+        {
+            if (!InGameHasFocus)
+            {
+                GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
+                InGameHasFocus = true;
+                MouseHelper.GrabMouseCursor();
+                Navigate(null);
+                _leftClickCounter = 10000;
+                MouseTicksRan = TicksRan + 10000;
+            }
+        }
+    }
+
+    private void SetIngameNotInFocus()
+    {
+        if (InGameHasFocus)
+        {
+            Player?.resetPlayerKeyState();
+            InGameHasFocus = false;
+            GCSettings.LatencyMode = GCLatencyMode.Batch;
+            MouseHelper.UngrabMouseCursor();
+            Mouse.setCursorVisible(!IsControllerMode);
+        }
+    }
+
+    private MainMenuScreen CreateMainMenuScreen() => new(UIContext, Session, _hideQuitButton, this, CreateNetworkContext(), TexturePackList, Shutdown);
+    private ClientNetworkContext CreateNetworkContext() => new(this, this, this, Session, StatFileWriter, ParticleManager, HUD.AddChatMessage, this);
+
+    #endregion
+
+    #region System Utilities
+
+    public void ToggleFullscreen()
+    {
+        try
+        {
+            _fullscreen = !_fullscreen;
+            if (_fullscreen)
+            {
+                _tempDisplayWidth = DisplayWidth;
+                _tempDisplayHeight = DisplayHeight;
+
+                Display.setDisplayMode(Display.getDesktopDisplayMode());
+                Display.setFullscreen(true);
+                DisplayWidth = Display.getDisplayMode().getWidth();
+                DisplayHeight = Display.getDisplayMode().getHeight();
+
+                if (DisplayWidth <= 0) DisplayWidth = 1;
+                if (DisplayHeight <= 0) DisplayHeight = 1;
+            }
+            else
+            {
+                Display.setFullscreen(false);
+                if (_tempDisplayWidth > 0 && _tempDisplayHeight > 0)
+                {
+                    Display.setDisplayMode(new DisplayMode(_tempDisplayWidth, _tempDisplayHeight));
+                    DisplayWidth = _tempDisplayWidth;
+                    DisplayHeight = _tempDisplayHeight;
+                }
+                else
+                {
+                    Display.setDisplayMode(new DisplayMode(854, 480));
+                    DisplayWidth = 854;
+                    DisplayHeight = 480;
+                }
+
+                if (DisplayWidth <= 0) DisplayWidth = 1;
+                if (DisplayHeight <= 0) DisplayHeight = 1;
+
+                // Center the window
+                DisplayMode desktopMode = Display.getDesktopDisplayMode();
+                int centerX = (desktopMode.getWidth() - DisplayWidth) / 2;
+                int centerY = (desktopMode.getHeight() - DisplayHeight) / 2;
+                Display.setLocation(centerX, centerY);
+            }
+
+            Resize(DisplayWidth, DisplayHeight);
+            Display.update();
+        }
+        catch (Exception displayException)
+        {
+            _logger.LogError(displayException.ToString());
+        }
+    }
+
+    private void Resize(int newWidth, int newHeight)
+    {
+        if (newWidth <= 0) newWidth = 1;
+        if (newHeight <= 0) newHeight = 1;
+
+        DisplayWidth = newWidth;
+        DisplayHeight = newHeight;
+        Mouse.setDisplayDimensions(DisplayWidth, DisplayHeight);
+
+        FramebufferManager.Resize(Display.getFramebufferWidth(), Display.getFramebufferHeight());
+    }
+
+    private void ScreenshotListener()
+    {
+        if (Keyboard.isKeyDown(Keyboard.KEY_F2))
+        {
+            if (!_isTakingScreenshot)
+            {
+                _isTakingScreenshot = true;
+                int framebufferWidth = Display.getFramebufferWidth();
+                int framebufferHeight = Display.getFramebufferHeight();
+                int size = framebufferWidth * framebufferHeight * 3;
+                byte[] pixels = new byte[size];
+                GLManager.GL.PixelStore(PixelStoreParameter.PackAlignment, 1);
+                unsafe
+                {
+                    fixed (byte* p = pixels)
+                    {
+                        GLManager.GL.ReadPixels(0, 0, (uint)framebufferWidth, (uint)framebufferHeight, PixelFormat.Rgb, PixelType.UnsignedByte, p);
+                    }
+                }
+
+                string result = ScreenShotHelper.saveScreenshot(_gameDataDir, DisplayWidth, DisplayHeight, pixels);
+                HUD.AddChatMessage(result);
+            }
+        }
+        else
+        {
+            _isTakingScreenshot = false;
+        }
+    }
+
+    private void ForceReload()
+    {
+        _logger.LogInformation("FORCING RELOAD!");
+        SoundManager = new SoundManager();
+        SoundManager.LoadSoundSettings(Options);
+        DefaultMusicCategories.Register(SoundManager);
+    }
+
+    public void InstallResource(string resourcePath, FileInfo resourceFile)
     {
         if (!resourceFile.FullName.EndsWith("ogg"))
         {
@@ -1749,25 +1706,26 @@ public partial class BetaSharp
         int slashIndex = resourcePath.IndexOf("/");
         string category = resourcePath.Substring(0, slashIndex);
         resourcePath = resourcePath.Substring(slashIndex + 1);
+
         if (category.Equals("sound", StringComparison.OrdinalIgnoreCase))
         {
-            sndManager.AddSound(resourcePath, resourceFile);
+            SoundManager.AddSound(resourcePath, resourceFile);
         }
         else if (category.Equals("newsound", StringComparison.OrdinalIgnoreCase))
         {
-            sndManager.AddSound(resourcePath, resourceFile);
+            SoundManager.AddSound(resourcePath, resourceFile);
         }
         else if (category.Equals("streaming", StringComparison.OrdinalIgnoreCase))
         {
-            sndManager.AddStreaming(resourcePath, resourceFile);
+            SoundManager.AddStreaming(resourcePath, resourceFile);
         }
         else if (category.Equals("music", StringComparison.OrdinalIgnoreCase))
         {
-            sndManager.AddMusic(DefaultMusicCategories.Game, resourcePath, resourceFile);
+            SoundManager.AddMusic(DefaultMusicCategories.Game, resourcePath, resourceFile);
         }
         else if (category.Equals("newmusic", StringComparison.OrdinalIgnoreCase))
         {
-            sndManager.AddMusic(DefaultMusicCategories.Game, resourcePath, resourceFile);
+            SoundManager.AddMusic(DefaultMusicCategories.Game, resourcePath, resourceFile);
         }
         else if (category.Equals("custom", StringComparison.OrdinalIgnoreCase))
         {
@@ -1777,131 +1735,102 @@ public partial class BetaSharp
 
             if (subCategory.Equals("music", StringComparison.OrdinalIgnoreCase))
             {
-                sndManager.AddMusic(DefaultMusicCategories.Menu, resourcePath, resourceFile);
+                SoundManager.AddMusic(DefaultMusicCategories.Menu, resourcePath, resourceFile);
             }
         }
     }
 
-    public string getEntityDebugInfo()
-    {
-        return terrainRenderer.getDebugInfoEntities();
-    }
+    public string WorldDebugInfo => World.GetDebugInfo();
+    public string ParticleDebugInfo => "Particles: " + ParticleManager.getStatistics();
+    internal DebugSystemSnapshot DebugSystemSnapshot => _debugTelemetry.SystemSnapshot;
 
-    public string getWorldDebugInfo()
+    [Conditional("DEBUG")]
+    private void CheckGLError(string location)
     {
-        return world.getDebugInfo();
-    }
-
-    public string getParticleAndEntityCountDebugInfo()
-    {
-        return "P: " + particleManager.getStatistics() + ". T: " + world.getEntityCount();
-    }
-
-    internal DebugSystemSnapshot GetDebugSystemSnapshot()
-    {
-        return _debugTelemetry.SystemSnapshot;
-    }
-
-    internal DebugFrameStatsSnapshot GetDebugFrameStatsSnapshot()
-    {
-        return _debugTelemetry.GetFrameStatsSnapshot();
-    }
-
-    public void respawn(bool ignoreSpawnPosition, int newDimensionId)
-    {
-        Vec3i? playerSpawnPos = null;
-        Vec3i? respawnPos = null;
-
-        if (player is not null && !ignoreSpawnPosition)
+        GLEnum glError = GLManager.GL.GetError();
+        if (glError != 0)
         {
-            playerSpawnPos = player.getSpawnPos();
-
-            if (playerSpawnPos is not null)
-            {
-                respawnPos = EntityPlayer.findRespawnPosition(world, playerSpawnPos);
-
-                if (respawnPos is null)
-                {
-                    player.sendMessage("tile.bed.notValid");
-                }
-            }
-        }
-
-        bool useBedSpawn = respawnPos is not null;
-        Vec3i finalRespawnPos = respawnPos ?? world.getSpawnPos();
-
-        world.UpdateSpawnPosition();
-        world.updateEntityLists();
-
-        int previousPlayerId = 0;
-
-        if (player is not null)
-        {
-            previousPlayerId = player.id;
-            world.Remove(player);
-        }
-
-        camera = null;
-        player = (ClientPlayerEntity)playerController.createPlayer(world);
-        player.dimensionId = newDimensionId;
-        camera = player;
-
-        player.teleportToTop();
-
-        if (useBedSpawn)
-        {
-            player.setSpawnPos(playerSpawnPos);
-            player.setPositionAndAnglesKeepPrevAngles(
-                finalRespawnPos.X + 0.5,
-                finalRespawnPos.Y + 0.1,
-                finalRespawnPos.Z + 0.5,
-                0.0F,
-                0.0F);
-        }
-
-        playerController.flipPlayer(player);
-        world.addPlayer(player);
-        player.movementInput = new MovementInputFromOptions(options);
-        player.id = previousPlayerId;
-        player.spawn();
-        playerController.fillHotbar(player);
-
-        showText("Respawning");
-
-        if (currentScreen is GuiGameOver)
-        {
-            displayGuiScreen(null);
+            _logger.LogError($"#### GL ERROR ####");
+            _logger.LogError($"@ {location}");
+            _logger.LogError($"> {glError.ToString()}");
+            _logger.LogError($"");
         }
     }
 
-    private static void StartMainThread(string playerName, string sessionToken)
+    private void LoadScreen()
     {
-        Thread.CurrentThread.Name = "BetaSharp Main Thread";
-
-        BetaSharp game = new(850, 480, false);
-
-        if (playerName != null && sessionToken != null)
-        {
-            game.session = new Session(playerName, sessionToken);
-
-            if (sessionToken == "-")
-            {
-                hasPaidCheckTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-    ;
-            }
-        }
-        else
-        {
-            throw new Exception("Player name and session token were not provided!");
-        }
-
-        game.Run();
+        ScaledResolution var1 = new(Options, DisplayWidth, DisplayHeight);
+        GLManager.GL.Clear(ClearBufferMask.DepthBufferBit | ClearBufferMask.ColorBufferBit);
+        GLManager.GL.MatrixMode(GLEnum.Projection);
+        GLManager.GL.LoadIdentity();
+        GLManager.GL.Ortho(0.0D, var1.ScaledWidth, var1.ScaledHeight, 0.0D, 1000.0D, 3000.0D);
+        GLManager.GL.MatrixMode(GLEnum.Modelview);
+        GLManager.GL.LoadIdentity();
+        GLManager.GL.Translate(0.0F, 0.0F, -2000.0F);
+        GLManager.GL.Viewport(0, 0, (uint)Display.getFramebufferWidth(), (uint)Display.getFramebufferHeight());
+        GLManager.GL.ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
+        Tessellator tessellator = Tessellator.instance;
+        GLManager.GL.Disable(GLEnum.Lighting);
+        GLManager.GL.Enable(GLEnum.Texture2D);
+        GLManager.GL.Disable(GLEnum.Fog);
+        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
+        TextureManager.BindTexture(TextureManager.GetTextureId("/title/mojang.png"));
+        tessellator.startDrawingQuads();
+        tessellator.setColorOpaque_I(0xFFFFFF);
+        tessellator.addVertexWithUV(0.0D, (double)DisplayHeight, 0.0D, 0.0D, 0.0D);
+        tessellator.addVertexWithUV((double)DisplayWidth, (double)DisplayHeight, 0.0D, 0.0D, 0.0D);
+        tessellator.addVertexWithUV((double)DisplayWidth, 0.0D, 0.0D, 0.0D, 0.0D);
+        tessellator.addVertexWithUV(0.0D, 0.0D, 0.0D, 0.0D, 0.0D);
+        tessellator.draw();
+        short var3 = 256;
+        short var4 = 256;
+        GLManager.GL.Color4(1.0F, 1.0F, 1.0F, 1.0F);
+        tessellator.setColorOpaque_I(0xFFFFFF);
+        DrawTextureRegion((var1.ScaledWidth - var3) / 2, (var1.ScaledHeight - var4) / 2, 0, 0, var3, var4);
+        GLManager.GL.Disable(GLEnum.Lighting);
+        GLManager.GL.Disable(GLEnum.Fog);
+        GLManager.GL.Enable(GLEnum.AlphaTest);
+        GLManager.GL.AlphaFunc(GLEnum.Greater, 0.1F);
+        Display.swapBuffers();
     }
 
-    public ClientNetworkHandler getSendQueue()
+    private static void DrawTextureRegion(int x, int y, int texX, int texY, int width, int height)
     {
-        return player is EntityClientPlayerMP ? ((EntityClientPlayerMP)player).sendQueue : null;
+        const float uScale = 1 / 256f;
+        const float vScale = 1 / 256f;
+
+        Tessellator tess = Tessellator.instance;
+        tess.startDrawingQuads();
+        tess.addVertexWithUV(x + 0, y + height, 0, (texX + 0) * uScale, (texY + height) * vScale);
+        tess.addVertexWithUV(x + width, y + height, 0, (texX + width) * uScale, (texY + height) * vScale);
+        tess.addVertexWithUV(x + width, y + 0, 0, (texX + width) * uScale, (texY + 0) * vScale);
+        tess.addVertexWithUV(x + 0, y + 0, 0, (texX + 0) * uScale, (texY + 0) * vScale);
+        tess.draw();
     }
+
+    #endregion
+
+    #region OS Interop
+
+    [LibraryImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static partial uint TimeBeginPeriod(uint period);
+
+    [LibraryImport("winmm.dll", EntryPoint = "timeEndPeriod")]
+    private static partial uint TimeEndPeriod(uint period);
+
+    public void InitializeTimer()
+    {
+        if (s_isWindows) TimeBeginPeriod(1);
+    }
+
+    public void CleanupTimer()
+    {
+        if (s_isWindows) TimeEndPeriod(1);
+    }
+
+    #endregion
+
+    #region Application Entry Point
 
     public static void Startup(string[] args)
     {
@@ -1915,23 +1844,28 @@ public partial class BetaSharp
         StartMainThread(result.Name, result.Session);
     }
 
-    public static bool isGuiEnabled()
+    private static void StartMainThread(string playerName, string sessionToken)
     {
-        return Instance == null || !Instance.options.HideGUI;
+        Thread.CurrentThread.Name = "BetaSharp Main Thread";
+
+        BetaSharp game = new(850, 480, false);
+
+        if (playerName != null && sessionToken != null)
+        {
+            game.Session = new Session(playerName, sessionToken);
+
+            if (sessionToken == "-")
+            {
+                HasPaidCheckTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+        }
+        else
+        {
+            throw new Exception("Player name and session token were not provided!");
+        }
+
+        game.Run();
     }
 
-    public static bool isFancyGraphicsEnabled()
-    {
-        return Instance != null;
-    }
-
-    public static bool isAmbientOcclusionEnabled()
-    {
-        return Instance != null;
-    }
-
-    public static bool isDebugInfoEnabled()
-    {
-        return Instance != null && Instance.options.ShowDebugInfo;
-    }
+    #endregion
 }

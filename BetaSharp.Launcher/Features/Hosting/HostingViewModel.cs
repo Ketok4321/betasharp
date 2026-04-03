@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Threading.Tasks;
@@ -27,6 +27,45 @@ internal sealed partial class HostingViewModel(ILogger<HostingViewModel> logger,
     public partial bool IsRunning { get; set; }
 
     private Process? _process;
+
+    public void Stop()
+    {
+        logger.LogInformation("Stopping the server");
+
+        Message = "Stopping";
+
+        if (_process is not null)
+        {
+            try
+            {
+                logger.LogInformation("Killing the server process");
+
+                _process.Exited -= OnExited;
+                _process.OutputDataReceived -= OnOutputDataReceived;
+
+                _process.CancelOutputRead();
+
+                _process.Kill();
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "An exception occurred while killing the server process");
+            }
+            finally
+            {
+                _process.Dispose();
+                _process = null;
+
+                logger.LogInformation("Killed the server process");
+            }
+        }
+
+        Message = "Run";
+
+        IsRunning = false;
+
+        logger.LogInformation("Stopped the server");
+    }
 
     [RelayCommand]
     private async Task RunAsync()
@@ -88,45 +127,6 @@ internal sealed partial class HostingViewModel(ILogger<HostingViewModel> logger,
     private void Back()
     {
         navigationService.Navigate<HomeViewModel>();
-    }
-
-    private void Stop()
-    {
-        logger.LogInformation("Stopping the server");
-
-        Message = "Stopping";
-
-        if (_process is not null)
-        {
-            try
-            {
-                logger.LogInformation("Killing the server process");
-
-                _process.Exited -= OnExited;
-                _process.OutputDataReceived -= OnOutputDataReceived;
-
-                _process.CancelOutputRead();
-
-                _process.Kill();
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(exception, "An exception occurred while killing the server process");
-            }
-            finally
-            {
-                _process.Dispose();
-                _process = null;
-
-                logger.LogInformation("Killed the server process");
-            }
-        }
-
-        Message = "Run";
-
-        IsRunning = false;
-
-        logger.LogInformation("Stopped the server");
     }
 
     private async Task WriteAsync(string? input)

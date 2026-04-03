@@ -325,17 +325,21 @@ public class Keyboard
         return c;
     }
 
+    public static event Action<Keys, InputAction, KeyModifiers>? OnGlfwKey;
+
     private static unsafe void OnKey(WindowHandle* window, Keys key, int scancode, InputAction action,
         KeyModifiers mods)
     {
         if (!created) return;
+
+        OnGlfwKey?.Invoke(key, action, mods);
 
         if (!keyMap.TryGetValue(key, out int lwjglKey)) lwjglKey = KEY_NONE;
 
         bool pressed = action == InputAction.Press || action == InputAction.Repeat;
         bool isRepeat = action == InputAction.Repeat;
 
-        if (lwjglKey > 0 && lwjglKey < KEYBOARD_SIZE) keyDownBuffer[lwjglKey] = pressed && !isRepeat;
+        if (lwjglKey > 0 && lwjglKey < KEYBOARD_SIZE) keyDownBuffer[lwjglKey] = pressed;
 
 
         char character = '\0';

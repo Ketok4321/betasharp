@@ -21,9 +21,14 @@ public class Connection
     protected string disconnectedReason = "";
     protected object[]? disconnectReasonArgs;
 
-    private int timeout;
-    private ConcurrentQueue<Packet> sendQueue = [];
-    private ConcurrentQueue<Packet> delayedSendQueue = [];
+    public long BytesRead { get; protected set; }
+    public long BytesWritten { get; protected set; }
+    public int PacketsRead { get; protected set; }
+    public int PacketsWritten { get; protected set; }
+
+    private int _timeout;
+    private readonly ConcurrentQueue<Packet> _sendQueue = [];
+    private readonly ConcurrentQueue<Packet> _delayedSendQueue = [];
     private int _delay;
     private Socket? _socket;
     private NetworkStream? _networkStream;
@@ -35,7 +40,6 @@ public class Connection
         this.netHandler = netHandler;
 
         socket.ReceiveTimeout = 30000;
-        // setTrafficClass doesn't have a direct .NET equivalent and can be omitted
 
         _networkStream = new NetworkStream(socket);
 
@@ -62,11 +66,11 @@ public class Connection
             Interlocked.Increment(ref packet.UseCount);
             if (Packet.Registry[packet.Id]!.WorldPacket)
             {
-                delayedSendQueue.Enqueue(packet);
+                _delayedSendQueue.Enqueue(packet);
             }
             else
             {
-                sendQueue.Enqueue(packet);
+                _sendQueue.Enqueue(packet);
             }
         }
     }
@@ -103,21 +107,21 @@ public class Connection
 
     public virtual void tick()
     {
-        if (sendQueue.Count > 1048576)
+        if (_sendQueue.Count > 1048576 || _delayedSendQueue.Count > 1048576)
         {
             disconnect("disconnect.overflow");
         }
 
         if (readQueue.IsEmpty)
         {
-            if (timeout++ == 1200)
+            if (_timeout++ == 1200)
             {
                 disconnect("disconnect.timeout");
             }
         }
         else
         {
-            timeout = 0;
+            _timeout = 0;
         }
 
         processPackets();
@@ -137,7 +141,7 @@ public class Connection
 
         int maxPacketsPerTick = 100;
 
-        while (readQueue.TryDequeue(out var packet) && maxPacketsPerTick-- >= 0)
+        while (readQueue.TryDequeue(out Packet? packet) && maxPacketsPerTick-- >= 0)
         {
             packet.Apply(netHandler);
             packet.Return();
@@ -155,12 +159,12 @@ public class Connection
         disconnect(new Exception("disconnect.closed"));
     }
 
-    public int getDelayedSendQueueSize()
+    public int getWorldPacketBacklog()
     {
-        return delayedSendQueue.Count;
+        return _delayedSendQueue.Count;
     }
 
-    private async void Reading()
+    private void Reading()
     {
         while (open && !closed)
         {
@@ -173,6 +177,8 @@ public class Connection
 
                 if (packet is not null)
                 {
+                    BytesRead += packet.Size();
+                    PacketsRead++;
                     readQueue.Enqueue(packet);
                 }
                 else
@@ -180,8 +186,6 @@ public class Connection
                     disconnect("disconnect.endOfStream");
                     break;
                 }
-
-                await Task.Delay(10);
             }
             catch (Exception exception)
             {
@@ -191,47 +195,52 @@ public class Connection
         }
     }
 
-    private async void Writing()
+    private async Task Writing()
     {
         while (open && !closed)
         {
             try
             {
                 ArgumentNullException.ThrowIfNull(_networkStream);
-
                 Packet? packet;
+                bool wrotePacket = false;
 
-                if (!sendQueue.IsEmpty)
+                while (_sendQueue.TryDequeue(out packet))
                 {
-                    if (!sendQueue.TryDequeue(out packet))
-                    {
-                        continue;
-                    }
-
                     Interlocked.Increment(ref packet.UseCount);
-
+                    int pSize = packet.Size();
                     Packet.Write(packet, _networkStream);
                     packet.Return();
+                    BytesWritten += pSize;
+                    PacketsWritten++;
+                    wrotePacket = true;
                 }
 
-                if (!delayedSendQueue.IsEmpty && _delay-- <= 0)
+                while (!_delayedSendQueue.IsEmpty && _delay-- <= 0)
                 {
-                    if (!delayedSendQueue.TryDequeue(out packet))
+                    if (!_delayedSendQueue.TryDequeue(out packet))
                     {
-                        continue;
+                        break;
                     }
 
                     Interlocked.Increment(ref packet.UseCount);
-
                     _delay = 0;
-
+                    int pSize = packet.Size();
                     Packet.Write(packet, _networkStream);
                     packet.Return();
+                    BytesWritten += pSize;
+                    PacketsWritten++;
+                    wrotePacket = true;
                 }
 
-                _networkStream.Flush();
-
-                await Task.Delay(10);
+                if (wrotePacket)
+                {
+                    _networkStream.Flush();
+                }
+                else
+                {
+                    await Task.Delay(1);
+                }
             }
             catch (Exception exception)
             {
@@ -239,7 +248,6 @@ public class Connection
                 {
                     disconnect(exception);
                 }
-
                 break;
             }
         }

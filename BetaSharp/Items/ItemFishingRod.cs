@@ -1,5 +1,6 @@
 using BetaSharp.Entities;
-using BetaSharp.Worlds;
+using BetaSharp.Worlds.Core;
+using BetaSharp.Worlds.Core.Systems;
 
 namespace BetaSharp.Items;
 
@@ -22,18 +23,18 @@ internal class ItemFishingRod : Item
         return true;
     }
 
-    public override ItemStack use(ItemStack itemStack, World world, EntityPlayer entityPlayer)
+    public override ItemStack use(ItemStack itemStack, IWorldContext world, EntityPlayer entityPlayer)
     {
         if (entityPlayer.fishHook != null)
         {
             int durabilityLoss = entityPlayer.fishHook.catchFish();
-            itemStack.damageItem(durabilityLoss, entityPlayer);
+            itemStack.DamageItem(durabilityLoss, entityPlayer);
             entityPlayer.swingHand();
         }
         else
         {
-            world.playSound(entityPlayer, "random.bow", 0.5F, 0.4F / (itemRand.NextFloat() * 0.4F + 0.8F));
-            if (!world.isRemote)
+            world.Broadcaster.PlaySoundAtEntity(entityPlayer, "random.bow", 0.5F, 0.4F / (itemRand.NextFloat() * 0.4F + 0.8F));
+            if (!world.IsRemote)
             {
                 world.SpawnEntity(new EntityFish(world, entityPlayer));
             }

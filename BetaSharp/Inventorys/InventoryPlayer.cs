@@ -8,8 +8,8 @@ namespace BetaSharp.Inventorys;
 public class InventoryPlayer : IInventory
 {
 
-    public ItemStack[] main = new ItemStack[36];
-    public ItemStack[] armor = new ItemStack[4];
+    public ItemStack?[] main = new ItemStack[36];
+    public ItemStack?[] armor = new ItemStack[4];
     public int selectedSlot;
     public EntityPlayer player;
     private ItemStack? cursorStack;
@@ -177,7 +177,7 @@ public class InventoryPlayer : IInventory
         }
     }
 
-    public bool addItemStackToInventory(ItemStack itemStack)
+    public bool AddItemStackToInventory(ItemStack itemStack)
     {
         int slotIndex;
         if (itemStack.isDamaged())
@@ -207,7 +207,13 @@ public class InventoryPlayer : IInventory
         }
     }
 
-    public ItemStack removeStack(int slotIndex, int amount)
+    public void AddItemStackToInventoryOrDrop(ItemStack itemStack)
+    {
+        if (AddItemStackToInventory(itemStack)) return;
+        player.DropItem(itemStack);
+    }
+
+    public ItemStack? removeStack(int slotIndex, int amount)
     {
         ItemStack[] targetArray = main;
         if (slotIndex >= main.Length)
@@ -407,7 +413,7 @@ public class InventoryPlayer : IInventory
         {
             if (armor[slotIndex] != null && armor[slotIndex].getItem() is ItemArmor)
             {
-                armor[slotIndex].damageItem(durabilityLoss, player);
+                armor[slotIndex].DamageItem(durabilityLoss, player);
                 if (armor[slotIndex].count == 0)
                 {
                     armor[slotIndex].onRemoved(player);
@@ -425,7 +431,7 @@ public class InventoryPlayer : IInventory
         {
             if (main[slotIndex] != null)
             {
-                player.dropItem(main[slotIndex], true);
+                player.DropItem(main[slotIndex], true);
                 main[slotIndex] = null;
             }
         }
@@ -434,7 +440,7 @@ public class InventoryPlayer : IInventory
         {
             if (armor[slotIndex] != null)
             {
-                player.dropItem(armor[slotIndex], true);
+                player.DropItem(armor[slotIndex], true);
                 armor[slotIndex] = null;
             }
         }

@@ -2,7 +2,7 @@ using BetaSharp.Client.Rendering.Core;
 using BetaSharp.Client.Rendering.Entities;
 using BetaSharp.Entities;
 using BetaSharp.Util.Maths;
-using BetaSharp.Worlds;
+using BetaSharp.Worlds.Core.Systems;
 
 namespace BetaSharp.Client.Entities.FX;
 
@@ -15,7 +15,7 @@ public class EntityPickupFX : EntityFX
     private readonly int maxAge;
     private readonly float yOffset;
 
-    public EntityPickupFX(World world, Entity target, Entity source, float yOffset) : base(world, target.x, target.y, target.z, target.velocityX, target.velocityY, target.velocityZ)
+    public EntityPickupFX(IWorldContext world, Entity target, Entity source, float yOffset) : base(world, target.x, target.y, target.z, target.velocityX, target.velocityY, target.velocityZ)
     {
         this.target = target;
         this.source = source;
@@ -39,12 +39,12 @@ public class EntityPickupFX : EntityFX
         int itemX = MathHelper.Floor(renderX);
         int itemY = MathHelper.Floor(renderY + (double)(standingEyeHeight / 2.0F));
         int itemZ = MathHelper.Floor(renderZ);
-        float luminance = world.getLuminance(itemX, itemY, itemZ);
+        float luminance = world.Lighting.GetLuminance(itemX, itemY, itemZ);
         renderX -= interpPosX;
         renderY -= interpPosY;
         renderZ -= interpPosZ;
         GLManager.GL.Color4(luminance, luminance, luminance, 1.0F);
-        EntityRenderDispatcher.instance.renderEntityWithPosYaw(target, (double)((float)renderX), (double)((float)renderY), (double)((float)renderZ), target.yaw, partialTick);
+        EntityRenderDispatcher.Instance.RenderEntityWithPosYaw(target, (double)((float)renderX), (double)((float)renderY), (double)((float)renderZ), target.yaw, partialTick);
     }
 
     public override void tick()

@@ -47,12 +47,6 @@ public static class MathHelper
     public static float Abs(float value) => MathF.Abs(value);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int FloorDiv(int a, int b)
-    {
-        return a < 0 ? -((-a - 1) / b) - 1 : a / b;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Round(float value)
     {
         return (int)MathF.Round(value, MidpointRounding.ToPositiveInfinity);
@@ -62,6 +56,22 @@ public static class MathHelper
     public static long Round(double value)
     {
         return (long)Math.Round(value, MidpointRounding.ToPositiveInfinity);
+    }
+
+    public static double GetDistSqr(double x1, double y1, double z1, double x2, double y2, double z2)
+    {
+        double dX = x1 - x2;
+        double dY = y1 - y2;
+        double dZ = z1 - z2;
+        return dX * dX + dY * dY + dZ * dZ;
+    }
+
+    public static double GetDistSqr(double x1, double y1, double z1, int x2, int y2, int z2)
+    {
+        double dX = x1 - (x2 + 0.5);
+        double dY = y1 - (y2 + 0.5);
+        double dZ = z1 - (z2 + 0.5);
+        return dX * dX + dY * dY + dZ * dZ;
     }
 
     static MathHelper()

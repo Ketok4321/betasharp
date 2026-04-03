@@ -1,14 +1,14 @@
 using BetaSharp.Items;
 using BetaSharp.NBT;
 using BetaSharp.Util.Maths;
-using BetaSharp.Worlds;
+using BetaSharp.Worlds.Core.Systems;
 
 namespace BetaSharp.Entities;
 
 public class EntitySpider : EntityMonster
 {
     public override EntityType Type => EntityRegistry.Spider;
-    public EntitySpider(World world) : base(world)
+    public EntitySpider(IWorldContext world) : base(world)
     {
         texture = "/mob/spider.png";
         setBoundingBoxSpacing(1.4F, 0.9F);
@@ -17,7 +17,7 @@ public class EntitySpider : EntityMonster
 
     public override void PostSpawn()
     {
-        if (world.random.NextInt(100) == 0)
+        if (world.Random.NextInt(100) == 0)
         {
             EntitySkeleton skeleton = new EntitySkeleton(world);
             skeleton.setPositionAndAnglesKeepPrevAngles(x, y, z, yaw, 0.0F);
@@ -36,13 +36,13 @@ public class EntitySpider : EntityMonster
         return false;
     }
 
-    protected override Entity findPlayerToAttack()
+    protected override Entity? findPlayerToAttack()
     {
         float brightness = getBrightnessAtEyes(1.0F);
         if (brightness < 0.5F)
         {
             double distance = 16.0D;
-            return world.getClosestPlayer(this, distance);
+            return world.Entities.GetClosestPlayerTarget(this.x, this.y, this.z, distance);
         }
         else
         {
