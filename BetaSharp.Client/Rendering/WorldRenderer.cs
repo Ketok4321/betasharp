@@ -297,7 +297,7 @@ public class WorldRenderer : IWorldEventListener
             EnvironmentAnimation = _game.Options.EnvironmentAnimation,
             ChunkFade = _game.Options.ChunkFade,
             RenderOccluded = false,
-            DebugMode = false // TODO: MAKE IT WORK
+            DebugMode = _game.Options.ShowDebugInfo
         };
 
         if (pass == 0)
